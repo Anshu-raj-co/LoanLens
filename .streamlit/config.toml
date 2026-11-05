@@ -1,0 +1,9 @@
+[client]
+# Never show raw stack traces to users (CLAUDE.md section 10).
+showErrorDetails = false
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

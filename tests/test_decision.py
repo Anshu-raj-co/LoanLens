@@ -121,7 +121,9 @@ def test_enforced_rule_always_overrides_model(many_results) -> None:
         if any(rr.enforce and not rr.passed for rr in r.rule_results):
             assert r.status == "Rejected"
             assert r.reasons[0].source == "rule"
-            assert r.borderline is False
+            # Only the CIBIL-margin rule can flag a rule-rejected result as borderline.
+            if r.borderline:
+                assert any("within" in w and "CIBIL" in w for w in r.warnings)
 
 
 def test_min_cibil_overrides_otherwise_perfect_profile(artifact) -> None:
@@ -310,3 +312,37 @@ def test_model_reasons_respect_direction() -> None:
     # High income is never called a weakness, even if its SHAP value is negative.
     assert [r.code for r in reasons] == ["LOW_CIBIL"]
     assert np.isclose(reasons[0].weight, 1.0)
+
+
+# Borderline near the CIBIL minimum (milestone 2 review, decision 3) -------------------------
+
+
+@pytest.mark.parametrize(
+    ("cibil", "expected"),
+    [(524, False), (525, True), (549, True), (550, True), (575, True), (576, False)],
+)
+def test_borderline_cibil_margin(artifact, cibil: int, expected: bool) -> None:
+    policy = load_policy()
+    assert policy.model.borderline_cibil_margin == 25
+    res = run({**STRONG, "cibil_score": cibil})
+    band = policy.model.borderline_band
+    in_band = band.lower <= res.probability <= band.upper and res.status == "Approved"
+    assert res.borderline is (expected or in_band)
+    if expected:
+        assert any("within 25 points of the minimum of 550" in w for w in res.warnings)
+    # The status is still decided by the rules and the model, never by the flag.
+    assert res.status == ("Rejected" if cibil < 550 else "Approved")
+
+
+def test_cibil_margin_ignored_when_another_enforced_rule_fails(artifact) -> None:
+    res = run({**STRONG, "cibil_score": 560, "loan_term": 25})
+    assert res.status == "Rejected" and res.borderline is False
+
+
+def test_decide_many_matches_decide(artifact, many_applicants) -> None:
+    from loanlens.decision import decide_many
+
+    rows = many_applicants[:60]
+    batch = decide_many(pd.DataFrame(rows))
+    for row, b in zip(rows, batch, strict=True):
+        assert run(row).model_dump() == b.model_dump()

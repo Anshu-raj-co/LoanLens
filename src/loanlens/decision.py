@@ -4,10 +4,14 @@ Order (CLAUDE.md section 5):
 1. validate input (invalid -> :class:`ValidationFailure`, no decision);
 2. policy rules (any *enforced* failure -> Rejected; advisory failures -> warnings);
 3. calibrated model probability ``p`` (Approved if ``p >= approval_threshold``);
-4. borderline flag when ``p`` is inside the configured band;
+4. borderline flag (probability band, or CIBIL near the enforced minimum);
 5. reasons, positive factors and "what would change".
 
 An enforced rule failure always wins: the model can never approve such an applicant.
+
+:func:`decide_many` is the vectorised core used by both customer mode and Bulk Check.
+:func:`decide` validates one application and runs the same core on a single row, so an
+applicant gets exactly the same result in both modes.
 """
 
 from __future__ import annotations
@@ -16,18 +20,21 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from loanlens import explain, rules
 from loanlens import model as model_mod
 from loanlens.config import Policy, load_policy
-from loanlens.formatting import inr, times
+from loanlens.formatting import inr, score_percent, times
 from loanlens.schema import (
     ApplicantInput,
     DecisionResult,
     ValidationFailure,
     validate_applicant,
 )
+
+INPUT_COLUMNS: tuple[str, ...] = tuple(ApplicantInput.model_fields)
 
 # Inputs checked against the training range, with display formatting.
 RANGE_CHECKS: dict[str, tuple[str, Any]] = {
@@ -38,19 +45,172 @@ RANGE_CHECKS: dict[str, tuple[str, Any]] = {
 }
 
 
-def _range_warnings(row: pd.Series, ranges: dict[str, tuple[float, float]]) -> list[str]:
-    out = []
-    for col, (label, fmt) in RANGE_CHECKS.items():
-        if col not in ranges or col not in row:
-            continue
-        lo, hi = ranges[col]
-        value = float(row[col])
-        if math.isfinite(value) and (value < lo or value > hi):
-            out.append(
-                f"Your {label} of {fmt(value)} is outside the range seen in the training data "
-                f"({fmt(lo)} to {fmt(hi)}), so this result is less reliable."
+def _range_warning(label: str, fmt, value: float, lo: float, hi: float) -> str:
+    return (
+        f"Your {label} of {fmt(value)} is outside the range seen in the training data "
+        f"({fmt(lo)} to {fmt(hi)}), so this result is less reliable."
+    )
+
+
+def _borderline_flags(
+    values: pd.DataFrame, passes: pd.DataFrame, proba: np.ndarray, policy: Policy
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (probability-band borderline, CIBIL-margin borderline) masks.
+
+    * Probability band: no enforced rule failed and ``p`` is inside the configured band.
+    * CIBIL margin (milestone 2 review, decision 3): CIBIL is within
+      ``borderline_cibil_margin`` points of an enforced ``min_cibil`` threshold, on either
+      side, and no *other* enforced rule failed (manual review cannot override, say, a
+      term limit).
+    """
+    r = policy.rules
+    enforced_cols = [c for c in passes.columns if getattr(r, c).enforce]
+    other_cols = [c for c in enforced_cols if c != "min_cibil"]
+    any_enforced_fail = ~passes[enforced_cols].all(axis=1).to_numpy()
+    other_fail = (
+        ~passes[other_cols].all(axis=1).to_numpy() if other_cols else np.zeros(len(values), bool)
+    )
+    band = policy.model.borderline_band
+    in_band = ~any_enforced_fail & (proba >= band.lower) & (proba <= band.upper)
+    if r.min_cibil.enforce:
+        gap = np.abs(values["cibil_score"].to_numpy(dtype="float64") - r.min_cibil.value)
+        near = (gap <= policy.model.borderline_cibil_margin) & ~other_fail
+    else:
+        near = np.zeros(len(values), bool)
+    return in_band, near
+
+
+def decide_many(
+    values: pd.DataFrame,
+    policy: Policy | None = None,
+    artifact: dict[str, Any] | None = None,
+    include_positive: bool = True,
+    include_rule_results: bool = True,
+) -> list[DecisionResult]:
+    """Decide many *already validated* applications at once.
+
+    Features, rules, model probabilities and SHAP values are computed in vectorised
+    passes. Reasons and "what would change" are built only for rejected rows.
+
+    Args:
+        values: one row per applicant with the :class:`ApplicantInput` columns.
+        policy: policy to apply; defaults to ``config/policy.yaml``.
+        artifact: trained model artifact; defaults to the saved model.
+        include_positive: build positive factors for approved rows.
+        include_rule_results: attach all six rule results to every row (customer mode).
+            When False, ``rule_results`` holds only the failed rules.
+    """
+    policy = policy or load_policy()
+    artifact = artifact or model_mod.load_artifact()
+    values = values[list(INPUT_COLUMNS)].reset_index(drop=True)
+    n = len(values)
+    if n == 0:
+        return []
+    threshold = policy.model.approval_threshold
+
+    # 2. Rules (vectorised status; scalar results only where messages are needed)
+    passes = rules.rule_pass_frame(values, policy)
+    enforced_cols = [c for c in passes.columns if getattr(policy.rules, c).enforce]
+    enforced_fail = ~passes[enforced_cols].all(axis=1).to_numpy()
+    any_fail = ~passes.all(axis=1).to_numpy()
+
+    # 3. Model
+    frame = model_mod.build_frame(values)
+    proba = model_mod.predict_proba(artifact, frame)
+    approved = ~enforced_fail & (proba >= threshold)
+
+    # 4. Borderline
+    in_band, near_cibil = _borderline_flags(values, passes, proba, policy)
+    borderline = in_band | near_cibil
+
+    # 5. Explanations (batched)
+    records = values.to_dict("records")
+    rejected_idx = np.flatnonzero(~approved)
+    explain_idx = np.flatnonzero(~approved | (approved & include_positive))
+    contributions = (
+        explain.shap_contributions(artifact, frame.iloc[explain_idx])
+        if len(explain_idx)
+        else pd.DataFrame()
+    )
+    contrib_pos = {int(i): k for k, i in enumerate(explain_idx)}
+    changes_list = (
+        explain.what_would_change_many(values.iloc[rejected_idx], artifact, policy)
+        if len(rejected_idx)
+        else []
+    )
+    changes_by_row = {int(i): changes_list[k] for k, i in enumerate(rejected_idx)}
+    benchmarks = artifact.get("benchmarks", {})
+    ranges = artifact.get("training_ranges", {})
+    range_masks = {
+        col: (frame[col].to_numpy(dtype="float64"), *ranges[col])
+        for col in RANGE_CHECKS
+        if col in ranges and col in frame.columns
+    }
+    margin = policy.model.borderline_cibil_margin
+    min_cibil = policy.rules.min_cibil.value
+
+    results: list[DecisionResult] = []
+    for i in range(n):
+        p = float(proba[i])
+        rule_results = (
+            rules.evaluate_rules(records[i], policy)
+            if (include_rule_results or any_fail[i])
+            else []
+        )
+        failed = rules.enforced_failures(rule_results)
+        advisory = rules.advisory_failures(rule_results)
+        if not include_rule_results:
+            rule_results = [r for r in rule_results if not r.passed]
+
+        warnings = [f"Advisory check: {r.message}" for r in advisory]
+        for col, (vals, lo, hi) in range_masks.items():
+            v = vals[i]
+            if math.isfinite(v) and (v < lo or v > hi):
+                label, fmt = RANGE_CHECKS[col]
+                warnings.append(_range_warning(label, fmt, v, lo, hi))
+        if in_band[i]:
+            warnings.append(
+                f"The approval likelihood ({score_percent(p)}) is close to the threshold, so "
+                "manual review is recommended."
             )
-    return out
+        if near_cibil[i]:
+            warnings.append(
+                f"The CIBIL score ({records[i]['cibil_score']}) is within {margin:g} points "
+                f"of the minimum of {min_cibil:g}, so manual review is recommended."
+            )
+
+        row = frame.iloc[i]
+        if not approved[i]:
+            contrib = contributions.iloc[contrib_pos[i]]
+            model_based = explain.model_reasons(contrib, row, benchmarks, positive=False)
+            reasons = explain.merge_reasons(explain.rule_reasons(failed), model_based)
+            if not reasons:
+                reasons = [explain.overall_reason(p, threshold)]
+            positive: list = []
+            changes = changes_by_row[i]
+        else:
+            reasons = []
+            positive = (
+                explain.positive_factors(contributions.iloc[contrib_pos[i]], row, benchmarks)
+                if include_positive
+                else []
+            )
+            changes = []
+
+        results.append(
+            DecisionResult(
+                status="Approved" if approved[i] else "Rejected",
+                probability=p,
+                borderline=bool(borderline[i]),
+                reasons=reasons,
+                positive_factors=positive,
+                what_would_change=changes,
+                rule_results=rule_results,
+                warnings=warnings,
+                model_version=str(artifact.get("version", "unknown")),
+            )
+        )
+    return results
 
 
 def decide(
@@ -58,7 +218,7 @@ def decide(
     policy: Policy | None = None,
     artifact: dict[str, Any] | None = None,
 ) -> DecisionResult | ValidationFailure:
-    """Score one application and explain the outcome.
+    """Score one application and explain the outcome (customer mode).
 
     Args:
         data: raw applicant fields (dict) or an already validated :class:`ApplicantInput`.
@@ -72,61 +232,5 @@ def decide(
     applicant = validate_applicant(data)
     if isinstance(applicant, ValidationFailure):
         return applicant
-    policy = policy or load_policy()
-    artifact = artifact or model_mod.load_artifact()
-    threshold = policy.model.approval_threshold
-    band = policy.model.borderline_band
-
-    # 2. Policy rules
-    values = applicant.model_dump()
-    rule_results = rules.evaluate_rules(values, policy)
-    enforced = rules.enforced_failures(rule_results)
-    advisory = rules.advisory_failures(rule_results)
-
-    # 3. Model
-    frame = model_mod.build_frame(pd.DataFrame([values]))
-    probability = float(model_mod.predict_proba(artifact, frame)[0])
-    if enforced:
-        status = "Rejected"
-    else:
-        status = "Approved" if probability >= threshold else "Rejected"
-
-    # 4. Borderline (only meaningful when no hard rule has already decided)
-    borderline = not enforced and band.lower <= probability <= band.upper
-
-    # Warnings
-    warnings = [f"Advisory check: {r.message}" for r in advisory]
-    warnings += _range_warnings(frame.iloc[0], artifact.get("training_ranges", {}))
-    if borderline:
-        warnings.append(
-            f"The approval likelihood ({probability:.0%}) is close to the threshold, so "
-            "manual review is recommended."
-        )
-
-    # 5. Reasons
-    contributions = explain.shap_contributions(artifact, frame).iloc[0]
-    benchmarks = artifact.get("benchmarks", {})
-    row = frame.iloc[0]
-    if status == "Rejected":
-        model_based = explain.model_reasons(contributions, row, benchmarks, positive=False)
-        reasons = explain.merge_reasons(explain.rule_reasons(enforced), model_based)
-        if not reasons:
-            reasons = [explain.overall_reason(probability, threshold)]
-        positive: list = []
-        changes = explain.what_would_change(applicant, artifact, policy)
-    else:
-        reasons = []
-        positive = explain.positive_factors(contributions, row, benchmarks)
-        changes = []
-
-    return DecisionResult(
-        status=status,
-        probability=probability,
-        borderline=borderline,
-        reasons=reasons,
-        positive_factors=positive,
-        what_would_change=changes,
-        rule_results=rule_results,
-        warnings=warnings,
-        model_version=str(artifact.get("version", "unknown")),
-    )
+    values = pd.DataFrame([applicant.model_dump()])
+    return decide_many(values, policy, artifact)[0]

@@ -175,6 +175,39 @@ Each entry records what was found, what was chosen, and why.
   - 11 are borderline.
   - Every rejection gets a "what would change" suggestion.
 
+## Milestone 2 review changes (before Phase 6)
+
+### D-031 Saved model check (review decision 1)
+- **Found:** `models/loanlens_model.joblib` was present, so no rebuild was needed. If the model is missing, every app page now shows "The prediction model has not been trained yet... run `python -m loanlens.model`" and stops cleanly.
+
+### D-032 Probability display (review decision 2)
+- **Chose:** `formatting.score_percent` never prints 0% or 100%: values above 0.99 show as ">99%" and below 0.01 as "<1%". `likelihood_text` adds the verbal band, e.g. "96% - Very likely". The figure is labelled "model score on synthetic data - indicative only".
+- The band cut-offs (0.85 / 0.65 / 0.35 / 0.15) are in `config/policy.yaml` under `display.probability_bands`, marked PLACEHOLDER and validated as strictly decreasing. Stored probabilities are unchanged.
+- **Note:** the verbal "Borderline" band (35 to 65%) is wider than the borderline *flag* band (40 to 60%). They are separate settings, and both are shown.
+
+### D-033 Borderline near the CIBIL minimum (review decision 3)
+- **Chose:** `borderline = (no enforced rule failed AND p in [0.4, 0.6]) OR (|CIBIL - min_cibil| <= borderline_cibil_margin AND min_cibil is enforced AND no other enforced rule failed)`. The margin defaults to 25 and is in `policy.yaml`.
+- **Why the extra condition:** a manual review cannot override, say, a term-limit failure, so the CIBIL margin does not flag those.
+- The status is still decided by the rules and the model. This replaces D-025's "borderline only when no enforced rule failed", but only for the CIBIL-margin case.
+- A sixth example (CIBIL 540, otherwise strong: Rejected and borderline) was added to `reports/example_decisions.md`.
+
+### D-034 One decision core for both modes (supports review decision 4)
+- **Chose:** `decision.decide_many()` is the vectorised core: features, rules, model, SHAP and the "what would change" search in batched passes. `decide()` validates one application and calls the same core with one row. `explain.what_would_change_many()` scores every candidate of every rejected row in one model call, and the single-row version calls it too. Batch and customer mode are therefore identical by construction, and tests check this.
+
+## Phase 6: Customer mode
+
+### D-035 Presentation logic lives in `src/loanlens/presentation.py`
+- **Chose:** form field specs (labels, ranges, defaults, help), notices, the policy table and a `DecisionView` (badge headline, likelihood text, reason cards, change summary, warnings, rule table) live in `src/loanlens/presentation.py`. Streamlit pages only lay these out.
+- **Why:** pages stay free of logic, and the tests call exactly what the page calls. Shared page chrome is in `app/ui_common.py` (layout only).
+
+### D-036 Form design
+- **Chose:** `st.number_input` boxes, each amount followed by a live caption in Indian grouping (e.g. "= Rs 1,50,00,000"). Streamlit number boxes cannot display Indian grouping themselves.
+- **No `st.form`:** without it the captions update as you type, and an old result disappears when an input changes, so a stale result is never shown.
+- **Ranges:** CIBIL 300 to 900, term 1 to 30 years, amounts from 0 up to generous caps. Zero income or loan is let through to validation so the user gets the friendly message instead of a silent clamp.
+
+### D-037 Privacy and errors
+- **Chose:** the customer page imports nothing from storage, writes no files and does not log; a test checks the page source for this. `.streamlit/config.toml` sets `showErrorDetails = false`, so no stack trace reaches users even if something unexpected escapes. Each page also catches errors and shows a friendly message.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.

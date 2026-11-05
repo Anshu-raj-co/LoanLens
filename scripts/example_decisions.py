@@ -1,4 +1,4 @@
-"""Print five example decisions and save them to ``reports/example_decisions.md``.
+"""Print the example decisions and save them to ``reports/example_decisions.md``.
 
 The applicants are hypothetical (not real people). Run with:
     python scripts/example_decisions.py
@@ -9,79 +9,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from loanlens import explain
+from loanlens.config import load_policy
 from loanlens.decision import decide
-from loanlens.formatting import inr
+from loanlens.examples import EXAMPLES
+from loanlens.formatting import SCORE_LABEL, inr, likelihood_text
 from loanlens.schema import DecisionResult
 
+BANDS = load_policy().display.probability_bands
 OUT = Path(__file__).resolve().parents[1] / "reports" / "example_decisions.md"
-
-EXAMPLES: list[tuple[str, dict[str, float]]] = [
-    (
-        "Approved: strong profile",
-        {
-            "cibil_score": 780,
-            "income_annum": 6_000_000,
-            "loan_amount": 15_000_000,
-            "loan_term": 10,
-            "residential_assets_value": 12_000_000,
-            "commercial_assets_value": 4_000_000,
-            "luxury_assets_value": 10_000_000,
-            "bank_asset_value": 5_000_000,
-        },
-    ),
-    (
-        "Approved: moderate CIBIL, ratio within range",
-        {
-            "cibil_score": 640,
-            "income_annum": 2_500_000,
-            "loan_amount": 7_500_000,
-            "loan_term": 15,
-            "residential_assets_value": 3_000_000,
-            "commercial_assets_value": 1_000_000,
-            "luxury_assets_value": 3_000_000,
-            "bank_asset_value": 1_000_000,
-        },
-    ),
-    (
-        "Rejected: CIBIL below the policy minimum",
-        {
-            "cibil_score": 480,
-            "income_annum": 5_000_000,
-            "loan_amount": 15_000_000,
-            "loan_term": 10,
-            "residential_assets_value": 8_000_000,
-            "commercial_assets_value": 3_000_000,
-            "luxury_assets_value": 9_000_000,
-            "bank_asset_value": 4_000_000,
-        },
-    ),
-    (
-        "Rejected: loan too large for income and assets",
-        {
-            "cibil_score": 720,
-            "income_annum": 1_200_000,
-            "loan_amount": 6_000_000,
-            "loan_term": 15,
-            "residential_assets_value": 2_000_000,
-            "commercial_assets_value": 0,
-            "luxury_assets_value": 1_000_000,
-            "bank_asset_value": 500_000,
-        },
-    ),
-    (
-        "Borderline: close to the approval threshold",
-        {
-            "cibil_score": 693,
-            "income_annum": 2_700_000,
-            "loan_amount": 10_100_000,
-            "loan_term": 20,
-            "residential_assets_value": 2_500_000,
-            "commercial_assets_value": 1_200_000,
-            "luxury_assets_value": 4_000_000,
-            "bank_asset_value": 1_500_000,
-        },
-    ),
-]
 
 LABELS = {
     "cibil_score": ("CIBIL score", lambda v: f"{v:.0f}"),
@@ -95,15 +30,6 @@ LABELS = {
 }
 
 
-def likelihood(p: float) -> str:
-    """Display a probability without implying certainty (isotonic output can be 0 or 1)."""
-    if p > 0.99:
-        return ">99%"
-    if p < 0.01:
-        return "<1%"
-    return f"{p:.0%}"
-
-
 def render(title: str, applicant: dict[str, float], result: DecisionResult) -> str:
     """Format one decision as Markdown text."""
     flag = " (borderline: manual review recommended)" if result.borderline else ""
@@ -112,8 +38,8 @@ def render(title: str, applicant: dict[str, float], result: DecisionResult) -> s
     lines += [
         "",
         f"**Result: {result.status.upper()}**{flag}",
-        f"Approval likelihood: {likelihood(result.probability)} "
-        f"(model v{result.model_version})",
+        f"Approval likelihood: {likelihood_text(result.probability, BANDS)} "
+        f"({SCORE_LABEL}; model v{result.model_version})",
         "",
     ]
     if result.reasons:
@@ -157,7 +83,7 @@ def main() -> None:
         "not predict default. All policy thresholds are placeholders.",
         "",
     ]
-    for title, applicant in EXAMPLES:
+    for title, applicant, _expected in EXAMPLES:
         result = decide(applicant)
         if not isinstance(result, DecisionResult):  # pragma: no cover
             raise RuntimeError(f"Example '{title}' failed validation: {result}")

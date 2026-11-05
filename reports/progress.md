@@ -111,3 +111,25 @@
 **Open issues**
 - Single-row `decide()` is about 16 ms, so batch scoring should be vectorised in the batch phase (see Suggestions).
 - All thresholds remain placeholders.
+
+## Phase 6: Customer mode (done)
+
+**What was done**
+- Review changes:
+  - Model presence checked.
+  - Probability display never shows 0% or 100% and adds verbal likelihood bands (cut-offs in `policy.yaml`).
+  - CIBIL-margin borderline rule (+/-25 points, in `policy.yaml`).
+  - `decide_many()` vectorised core shared by `decide()`.
+  - Example report regenerated with likelihood bands, plus a sixth CIBIL-margin example (`src/loanlens/examples.py`).
+- `src/loanlens/presentation.py`: form specs, notices, `DecisionView`, policy table.
+- `app/Home.py`: purpose, disclaimer, illustrative-thresholds note, navigation, how a result is decided.
+- `app/pages/1_Check_My_Eligibility.py`: 8-field form with ranges, help and Indian-grouped amount echoes. The result shows a status badge, likelihood with band and "indicative only" label, borderline note, reason cards, what would change, positive factors, warnings, policy checks, and "Prototype - not a lending decision". Nothing is stored.
+- `app/ui_common.py` (shared header, sidebar and footer; friendly model and policy errors) and `.streamlit/config.toml` (stack traces hidden).
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 183 passed. New `test_customer_mode.py` runs all 6 examples through `decide()` + `present()` and drives the real page with Streamlit AppTest (render, submit examples, validation errors). There are also new borderline-margin, likelihood-band and `decide_many` equivalence tests.
+- `streamlit run app/Home.py` starts and the health check returns ok; Home and the eligibility page render with no exceptions under AppTest.
+
+**Open issues**
+- None.

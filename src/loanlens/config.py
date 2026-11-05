@@ -56,6 +56,50 @@ class ModelConfig(BaseModel):
 
     approval_threshold: float = Field(ge=0, le=1)
     borderline_band: BorderlineBand
+    borderline_cibil_margin: float = Field(default=25, ge=0)
+
+
+class ProbabilityBands(BaseModel):
+    """Lower bounds of the verbal likelihood bands (display only)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    very_likely: float = Field(default=0.85, ge=0, le=1)
+    likely: float = Field(default=0.65, ge=0, le=1)
+    borderline: float = Field(default=0.35, ge=0, le=1)
+    unlikely: float = Field(default=0.15, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _descending(self) -> ProbabilityBands:
+        if not self.very_likely > self.likely > self.borderline > self.unlikely:
+            raise ValueError("probability_bands must be strictly decreasing")
+        return self
+
+
+class DisplayConfig(BaseModel):
+    """How results are shown."""
+
+    model_config = ConfigDict(frozen=True)
+
+    probability_bands: ProbabilityBands = ProbabilityBands()
+
+
+class BatchConfig(BaseModel):
+    """Bulk Check limits."""
+
+    model_config = ConfigDict(frozen=True)
+
+    max_rows: int = Field(default=50_000, gt=0)
+    chunk_size: int = Field(default=2_000, gt=0)
+
+
+class StorageConfig(BaseModel):
+    """SQLite storage of anonymised batch summaries."""
+
+    model_config = ConfigDict(frozen=True)
+
+    db_path: str = "data/loanlens.sqlite"
+    store_applicant_ids: bool = False
 
 
 class EmiConfig(BaseModel):
@@ -74,6 +118,9 @@ class Policy(BaseModel):
     rules: RulesConfig
     emi: EmiConfig
     model: ModelConfig
+    display: DisplayConfig = DisplayConfig()
+    batch: BatchConfig = BatchConfig()
+    storage: StorageConfig = StorageConfig()
 
 
 def load_policy_file(path: Path = POLICY_PATH) -> Policy:

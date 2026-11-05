@@ -247,54 +247,104 @@ def _approved_mask(
     return rules_ok & (proba >= policy.model.approval_threshold)
 
 
-def what_would_change(
-    applicant: ApplicantInput, artifact: dict[str, Any], policy: Policy
-) -> list[Change]:
-    """Smallest single change that would likely turn a rejection into an approval.
+def _cibil_candidates(score: float) -> list[int]:
+    start = int(math.ceil((score + 1) / CIBIL_STEP) * CIBIL_STEP)
+    values = list(range(start, 901, CIBIL_STEP))
+    if values and values[-1] != 900:
+        values.append(900)
+    if not values and score < 900:
+        values = [900]
+    return values
+
+
+def _loan_candidates(amount: float) -> list[float]:
+    amounts = np.floor(amount * LOAN_STEPS / LOAN_ROUNDING) * LOAN_ROUNDING
+    return [float(a) for a in dict.fromkeys(amounts) if 0 < a < amount]
+
+
+def _first_approved(
+    values: pd.DataFrame,
+    feature: str,
+    candidates: list[list[float]],
+    artifact: dict[str, Any],
+    policy: Policy,
+) -> dict[int, float]:
+    """For each row, the first candidate value (in list order) that would be approved."""
+    counts = np.array([len(c) for c in candidates])
+    if counts.sum() == 0:
+        return {}
+    owner = np.repeat(np.arange(len(values)), counts)
+    flat = np.concatenate([np.asarray(c, dtype="float64") for c in candidates if len(c)])
+    expanded = values.iloc[owner].reset_index(drop=True)
+    expanded[feature] = flat
+    ok = _approved_mask(expanded, artifact, policy)
+    hits = pd.DataFrame({"owner": owner[ok], "value": flat[ok]})
+    return hits.groupby("owner", sort=False)["value"].first().to_dict()
+
+
+def what_would_change_many(
+    values: pd.DataFrame, artifact: dict[str, Any], policy: Policy
+) -> list[list[Change]]:
+    """Smallest single change that would likely turn each rejection into an approval.
 
     Searches one feature at a time and only in directions that make lending sense:
-    **raising the CIBIL score** or **reducing the loan amount**. It never suggests a
-    bigger loan or a different loan term (milestone 1 review, decision 5).
-    """
-    base = applicant.model_dump()
-    changes: list[Change] = []
+    **raising the CIBIL score** (steps of 5, up to 900) or **reducing the loan amount**
+    (99% down to 10% of the request, rounded down to Rs 10,000). It never suggests a bigger
+    loan or a different loan term (milestone 1 review, decision 5). Every candidate is
+    scored with the full decision (enforced rules, then model) in one vectorised pass.
 
-    start = int(math.ceil((applicant.cibil_score + 1) / CIBIL_STEP) * CIBIL_STEP)
-    cibil_values = list(range(start, 901, CIBIL_STEP))
-    if cibil_values and cibil_values[-1] != 900:
-        cibil_values.append(900)
-    if cibil_values:
-        cands = pd.DataFrame([{**base, "cibil_score": v} for v in cibil_values])
-        ok = _approved_mask(cands, artifact, policy)
-        if ok.any():
-            target = cibil_values[int(np.argmax(ok))]
+    Args:
+        values: validated applicant inputs, one row per rejected applicant.
+    """
+    values = values.reset_index(drop=True)
+    cibil_hits = _first_approved(
+        values,
+        "cibil_score",
+        [_cibil_candidates(v) for v in values["cibil_score"]],
+        artifact,
+        policy,
+    )
+    loan_hits = _first_approved(
+        values,
+        "loan_amount",
+        [_loan_candidates(v) for v in values["loan_amount"]],
+        artifact,
+        policy,
+    )
+    out: list[list[Change]] = []
+    for i in range(len(values)):
+        changes = []
+        if i in cibil_hits:
+            target = int(cibil_hits[i])
             changes.append(
                 Change(
                     feature="cibil_score",
-                    current_value=applicant.cibil_score,
+                    current_value=float(values.at[i, "cibil_score"]),
                     suggested_value=target,
                     message=f"Raising your CIBIL score to about {target} would likely "
                     "change the result.",
                 )
             )
-
-    amounts = np.floor(applicant.loan_amount * LOAN_STEPS / LOAN_ROUNDING) * LOAN_ROUNDING
-    amounts = [float(a) for a in dict.fromkeys(amounts) if 0 < a < applicant.loan_amount]
-    if amounts:
-        cands = pd.DataFrame([{**base, "loan_amount": a} for a in amounts])
-        ok = _approved_mask(cands, artifact, policy)
-        if ok.any():
-            target = amounts[int(np.argmax(ok))]
+        if i in loan_hits:
+            target = loan_hits[i]
             changes.append(
                 Change(
                     feature="loan_amount",
-                    current_value=applicant.loan_amount,
+                    current_value=float(values.at[i, "loan_amount"]),
                     suggested_value=target,
                     message=f"Reducing the loan amount to about {inr(target)} would likely "
                     "change the result.",
                 )
             )
-    return changes
+        out.append(changes)
+    return out
+
+
+def what_would_change(
+    applicant: ApplicantInput, artifact: dict[str, Any], policy: Policy
+) -> list[Change]:
+    """Single-applicant version of :func:`what_would_change_many` (same code path)."""
+    return what_would_change_many(pd.DataFrame([applicant.model_dump()]), artifact, policy)[0]
 
 
 def change_summary(changes: list[Change]) -> str:

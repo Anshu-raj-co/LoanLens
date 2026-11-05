@@ -25,3 +25,16 @@ def artifact(clean_df: pd.DataFrame) -> dict[str, Any]:
         model.save_artifact(model.train_final(clean_df))
         model.load_artifact.cache_clear()
     return model.load_artifact()
+
+
+APP_DIR = cleaning.PROJECT_ROOT / "app"
+
+
+@pytest.fixture(scope="session")
+def app_path() -> str:
+    """Make ``app/`` importable (as ``streamlit run app/Home.py`` does) and return it."""
+    import sys
+
+    if str(APP_DIR) not in sys.path:
+        sys.path.insert(0, str(APP_DIR))
+    return str(APP_DIR)
