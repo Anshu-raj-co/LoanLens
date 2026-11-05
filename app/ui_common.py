@@ -9,13 +9,17 @@ import streamlit as st
 from loanlens import model as model_mod
 from loanlens.config import Policy, load_policy
 from loanlens.presentation import DISCLAIMER, PROTOTYPE_NOTICE
+from loanlens.theme import css_block, header_html
 
 APP_NAME = "LoanLens"
+TAGLINE = "Explainable loan pre-eligibility, in plain language"
 
 
 def setup_page(title: str, icon: str) -> None:
     """Page config, sidebar branding and the page title. Call first on every page."""
     st.set_page_config(page_title=f"{APP_NAME} | {title}", page_icon=icon, layout="wide")
+    st.markdown(css_block(), unsafe_allow_html=True)
+    st.markdown(header_html(APP_NAME, TAGLINE), unsafe_allow_html=True)
     with st.sidebar:
         st.markdown(f"### {APP_NAME}")
         st.caption("Explainable loan pre-eligibility prototype")

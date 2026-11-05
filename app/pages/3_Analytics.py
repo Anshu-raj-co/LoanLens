@@ -48,7 +48,7 @@ with tab_data:
             "`python -m loanlens.cleaning`."
         )
     else:
-        st.plotly_chart(charts.approval_by_cibil_band(df), use_container_width=True)
+        st.plotly_chart(charts.approval_by_cibil_band(df), use_container_width=True, theme=None)
         st.caption("CIBIL dominates: approval is near-certain above 550 and rare at or below it.")
         left, right = st.columns(2)
         with left:
@@ -57,6 +57,7 @@ with tab_data:
                     df, "loan_term", "Approval rate by loan term", "Loan term (years)"
                 ),
                 use_container_width=True,
+                theme=None,
             )
             st.caption(
                 "Short terms look better only because of a quirk among low-CIBIL applicants "
@@ -68,6 +69,7 @@ with tab_data:
                     df, "loan_amount", q=5, title="Approval rate by loan size (quintiles, Rs)"
                 ),
                 use_container_width=True,
+                theme=None,
             )
             st.caption("Loan size on its own makes little difference in this data.")
 
@@ -81,6 +83,7 @@ with tab_model:
                 importance, "What drives the model (mean absolute SHAP, training data)"
             ),
             use_container_width=True,
+            theme=None,
         )
         st.caption(
             f"Model v{artifact.get('version')} ({artifact.get('kind')}, "
@@ -100,13 +103,18 @@ with tab_batch:
         st.info("No batch has been checked yet. Run one on the **Bulk Check** page.")
     else:
         st.markdown(f"**Batch #{latest['id']}**, checked {latest['created_at']} (UTC)")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Rows in file", f"{latest['total_rows']:,}")
-        c2.metric("Scored", f"{latest['valid_rows']:,}")
-        c3.metric("Skipped (invalid)", f"{latest['invalid_rows']:,}")
-        c4.metric("Borderline", f"{latest['borderline']:,}")
         rate = latest["approval_rate"]
-        c5.metric("Approval rate", "n/a" if rate is None else f"{rate:.0%}")
+        cards = [
+            ("primary", "Rows in file", f"{latest['total_rows']:,}"),
+            ("primary", "Scored", f"{latest['valid_rows']:,}"),
+            ("neutral", "Skipped (invalid)", f"{latest['invalid_rows']:,}"),
+            ("warning", "⚠ Borderline", f"{latest['borderline']:,}"),
+            ("approved", "✅ Approval rate", "n/a" if rate is None else f"{rate:.0%}"),
+        ]
+        columns = st.columns(len(cards))
+        for i, (col, (tone, label, value)) in enumerate(zip(columns, cards, strict=True)):
+            with col, st.container(key=f"kpi_{tone}_{i}"):
+                st.metric(label, value)
         left, right = st.columns(2)
         with left:
             reasons = {r["reason"]: r["count"] for r in latest["top_rejection_reasons"]}
@@ -114,6 +122,7 @@ with tab_batch:
                 st.plotly_chart(
                     charts.counts_bar(reasons, "Top rejection reasons", "", horizontal=True),
                     use_container_width=True,
+                    theme=None,
                 )
             else:
                 st.info("No rejections in this batch.")
@@ -123,6 +132,7 @@ with tab_batch:
             st.plotly_chart(
                 charts.counts_bar(bands, "Applicants by likelihood band", "Likelihood band"),
                 use_container_width=True,
+                theme=None,
             )
         if len(history) > 1:
             with st.expander("Recent batches (anonymised summaries)"):

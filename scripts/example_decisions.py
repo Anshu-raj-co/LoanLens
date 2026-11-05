@@ -14,6 +14,7 @@ from loanlens.decision import decide
 from loanlens.examples import EXAMPLES
 from loanlens.formatting import SCORE_LABEL, inr, likelihood_text
 from loanlens.schema import DecisionResult
+from loanlens.theme import status_label
 
 BANDS = load_policy().display.probability_bands
 OUT = Path(__file__).resolve().parents[1] / "reports" / "example_decisions.md"
@@ -32,12 +33,12 @@ LABELS = {
 
 def render(title: str, applicant: dict[str, float], result: DecisionResult) -> str:
     """Format one decision as Markdown text."""
-    flag = " (borderline: manual review recommended)" if result.borderline else ""
+    flag = " ⚠️ *Borderline: manual review recommended*" if result.borderline else ""
     lines = [f"## {title}", "", "**Applicant (hypothetical)**", ""]
     lines += [f"- {LABELS[k][0]}: {LABELS[k][1](v)}" for k, v in applicant.items()]
     lines += [
         "",
-        f"**Result: {result.status.upper()}**{flag}",
+        f"**Result: {status_label(result.status)}**{flag}",
         f"Approval likelihood: {likelihood_text(result.probability, BANDS)} "
         f"({SCORE_LABEL}; model v{result.model_version})",
         "",
@@ -64,8 +65,8 @@ def render(title: str, applicant: dict[str, float], result: DecisionResult) -> s
     lines.append("**Policy checks**")
     lines.append("")
     for r in result.rule_results:
-        mark = "pass" if r.passed else ("FAIL" if r.enforce else "advisory")
-        lines.append(f"- [{mark}] {r.message}")
+        mark = "✅ pass" if r.passed else ("❌ FAIL" if r.enforce else "⚠️ advisory")
+        lines.append(f"- {mark}: {r.message}")
     if result.warnings:
         lines += ["", "**Warnings**", ""]
         lines += [f"- {w}" for w in result.warnings]

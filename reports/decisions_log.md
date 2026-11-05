@@ -277,6 +277,35 @@ Each entry records what was found, what was chosen, and why.
 ### D-048 Consistent look
 - **Chose:** every page calls `ui_common.setup_page` (page config, sidebar branding, prototype notice, title) and ends with `ui_common.footer()` (disclaimer). A test checks the footer and title on all five pages. Navigation is Streamlit's multipage sidebar, plus links on Home.
 
+## State on resume (before the UI restyle, Phase 9 and Phase 10)
+
+- **Found:** Phases 0-8 committed (last commit `b0569b4`). A stopped session had left uncommitted restyle work: `src/loanlens/theme.py` (new), `.streamlit/config.toml` theme, CSS and header injection in `app/ui_common.py`, restyled customer, bulk and analytics pages, themed `charts.py`, notebooks 02/03 importing the theme (and re-executed), and `reports/example_decisions.md` regenerated with ✅/❌.
+- **Kept:** all of it. Each file was reviewed, `ruff` passed and the full test suite passed (251 tests, including the new `tests/test_theme.py`), with no earlier test modified.
+- **Discarded:** nothing. Two defects found while verifying in a real browser were fixed rather than discarded (D-050).
+- Re-executing `03_modelling.ipynb` re-runs its final cell, which retrains and re-saves the production model. Training is seeded and deterministic, so only the `trained_at` timestamp changed; all model tests still pass. From Phase 9 on, nothing touches `models/`.
+
+## UI restyle (visual only)
+
+### D-049 Theme module and how styling is attached
+- **Chose:** every colour lives in `src/loanlens/theme.py` (palette, darker "ink" text shades, status mapping, CSS, Plotly template, HTML snippets). `app/ui_common.setup_page` injects one CSS block and the header strip on every page; `charts.py` and the notebooks use the shared Plotly template. `.streamlit/config.toml` forces `base = "light"` with the palette; a test keeps it in sync with `theme.STREAMLIT_THEME`.
+- **How elements are coloured:** Streamlit 1.40 adds a CSS class `st-key-<key>` to keyed containers, so cards, banners, panels and metric cards are `st.container(key="card_rejected_...")`, `key="banner_approved"`, `key="kpi_warning_..."` etc., styled by CSS. Alerts are recoloured by kind. This kept Streamlit's own `st.success` / `st.error` / `st.metric` elements, so **no earlier test had to change**.
+- **Customer result:** banner = keyed container holding the status alert ("✅ Approved" / "❌ Rejected", restyled as a large heading), the amber borderline pill beside it, and the likelihood metric with its band and "indicative only" label. The existing amber borderline note below is kept (it carries the reason). Policy checks are now a list with ✓ / ✗ / ! icons plus the words Pass / Fail / Advisory, instead of a table.
+- **Bulk Check:** six metric cards (total scored blue, approved green, rejected red, borderline amber, skipped grey, approval rate blue). The table shows "✅ Approved" / "❌ Rejected" text, coloured with a pandas Styler. Styler marshalling took 0.26 s for 1,000 rows and 0.61 s for 5,000, so colours are applied up to `theme.STYLED_ROWS_LIMIT` = 5,000 visible rows; above that the icon text alone is shown with a caption (filtering brings colours back). The download is still built from the raw results, so its columns and values are unchanged.
+- **Skipped rows:** shown inside an amber panel (amber chosen over red because skipped rows are a data warning, not a rejection).
+
+### D-050 Accessibility and two rendering fixes
+- **Contrast (WCAG AA, checked in `tests/test_theme.py`):** navy text on white 16.9:1, muted text on white 5.6:1, navy on every tint above 14:1. The brand green, red and amber reach only 3.1-4.6:1 on their tints, and white on the primary blue is 4.38:1. So brand colours are used for borders, icons, chart marks and large headings (3:1 is enough there), while small coloured text uses darker ink shades: green `#157A45` (4.8:1 on its tint), red `#B42318` (5.8:1), amber `#8A5A12` (5.4:1), and buttons / header use blue `#1D5FCF` (5.9:1 with white). Status is never shown by colour alone: always ✅/❌/⚠ plus the word.
+- **Fix 1:** Streamlit's fixed toolbar overlapped the header strip; the top padding was increased.
+- **Fix 2:** Streamlit's front end replaced a plot background written as `#FFFFFF` with the soft-panel colour. Charts now pin the background as `rgb(255, 255, 255)`, and the Analytics page passes `theme=None` so Streamlit's chart theme does not override the LoanLens template.
+- Approval-*rate* bars, feature importance and likelihood-band counts are neutral series, so they use the primary blue; status splits use green/red; rejection-reason counts are red. The approval-rate heatmap uses a red-amber-green scale from the palette.
+
+### D-051 Example applicants
+- `reports/example_decisions.md` now shows "✅ Approved" / "❌ Rejected", "⚠️ Borderline: manual review recommended", and ✅/❌/⚠️ on policy checks. Values and outcomes are unchanged.
+- The example applicants are not displayed anywhere in the app (no example buttons, not on the About page). Adding them would be a new feature, so nothing was added; see Suggestions.
+
+### D-052 Screenshots
+- Playwright is not installed. Screenshots were captured with the locally installed Microsoft Edge in headless mode, driven over the DevTools protocol by a throwaway script kept outside the repository. Files: `reports/screenshots/01_home.png` to `07_about.png` (the eligibility page approved, and rejected + borderline with CIBIL 540; Bulk Check after uploading the 1,000-row test fixture).
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -285,3 +314,4 @@ Each entry records what was found, what was chosen, and why.
 - In the batch phase, vectorise `decide()` (rules via `rule_pass_frame`, a single `predict_proba`, and SHAP on the whole batch) instead of calling it row by row. At about 16 ms per row, 1,000 rows would take about 16 s.
 - Consider a co-applicant income field later; the dataset has none, so it was not modelled.
 - For uploads above 50,000 rows, XGBoost could use more threads (`n_jobs`) at scoring time only; training stays single-threaded for determinism.
+- Optional "Try an example" buttons on the customer page that load the six hypothetical examples, shown with the same ✅/❌ styling.

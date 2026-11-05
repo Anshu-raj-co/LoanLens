@@ -1,4 +1,4 @@
-"""Reusable Plotly charts for approval analysis (EDA notebook and, later, the Analytics page).
+"""Reusable Plotly charts for approval analysis (EDA notebook and the Analytics page).
 
 All functions expect a cleaned frame where ``loan_status`` is 1 (approved) / 0 (rejected).
 They describe the approval *decision* in the data, not default risk.
@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from loanlens import theme
 from loanlens.features import CIBIL_EDGES, CIBIL_LABELS, cibil_band
 
 __all__ = [
@@ -29,9 +30,13 @@ __all__ = [
 ]
 
 TARGET = "loan_status"
-APPROVED_COLOUR = "#2a9d8f"
-REJECTED_COLOUR = "#e76f51"
-STATUS_COLOURS = {"Approved": APPROVED_COLOUR, "Rejected": REJECTED_COLOUR}
+# Colours come from theme.py only: Approved is always green, Rejected always red, and neutral
+# series (rates, importance, counts) use the primary blue.
+APPROVED_COLOUR = theme.APPROVED
+REJECTED_COLOUR = theme.REJECTED
+NEUTRAL_COLOUR = theme.PRIMARY
+STATUS_COLOURS = dict(theme.STATUS_COLOURS)
+TEMPLATE = theme.register_plotly_template()  # also the default for notebooks importing this
 
 
 def approval_rate_table(df: pd.DataFrame, by: str | pd.Series) -> pd.DataFrame:
@@ -72,7 +77,8 @@ def approval_rate_bar(
         text=table["approval_rate"].map(lambda r: f"{r:.0%}"),
         hover_data={"applications": True, "approved": True},
         title=title,
-        color_discrete_sequence=[APPROVED_COLOUR],
+        color_discrete_sequence=[NEUTRAL_COLOUR],
+        template=TEMPLATE,
     )
     fig.update_layout(
         xaxis_title=x_label or group_col,
@@ -82,7 +88,7 @@ def approval_rate_bar(
         xaxis_type="category",
     )
     fig.update_traces(textposition="outside")
-    return fig
+    return theme.style_figure(fig)
 
 
 def approval_by_cibil_band(df: pd.DataFrame) -> go.Figure:
@@ -134,10 +140,12 @@ def distribution_by_status(
         barmode="overlay",
         opacity=0.6,
         color_discrete_map=STATUS_COLOURS,
+        category_orders={"status": ["Approved", "Rejected"]},
         title=title or f"Distribution of {column} by status",
+        template=TEMPLATE,
     )
     fig.update_layout(yaxis_title="Applications", legend_title="Status")
-    return fig
+    return theme.style_figure(fig)
 
 
 def approval_heatmap(
@@ -162,7 +170,7 @@ def approval_heatmap(
             x=[str(v) for v in rate.columns],
             y=[str(v) for v in rate.index],
             customdata=count.values,
-            colorscale="RdYlGn",
+            colorscale=theme.RATE_SCALE,
             zmin=0,
             zmax=1,
             text=[[f"{v:.0%}" if pd.notna(v) else "" for v in row] for row in rate.values],
@@ -173,13 +181,14 @@ def approval_heatmap(
         )
     )
     fig.update_layout(
+        template=TEMPLATE,
         title=title,
         xaxis_title=c.name,
         yaxis_title=r.name,
         xaxis_type="category",
         yaxis_type="category",
     )
-    return fig
+    return theme.style_figure(fig)
 
 
 def feature_importance_bar(
@@ -193,13 +202,14 @@ def feature_importance_bar(
         orientation="h",
         text=[f"{v:.0%}" for v in data.values],
         title=title,
-        color_discrete_sequence=[APPROVED_COLOUR],
+        color_discrete_sequence=[NEUTRAL_COLOUR],
+        template=TEMPLATE,
     )
     fig.update_layout(
         xaxis_title="Share of total influence", yaxis_title="", xaxis_tickformat=".0%"
     )
     fig.update_traces(textposition="outside")
-    return fig
+    return theme.style_figure(fig)
 
 
 def counts_bar(
@@ -210,11 +220,12 @@ def counts_bar(
     if horizontal:
         series = series.sort_values()
         fig = px.bar(x=series.values, y=series.index, orientation="h", text=series.values,
-                     title=title, color_discrete_sequence=[REJECTED_COLOUR])  # fmt: skip
+                     title=title, color_discrete_sequence=[REJECTED_COLOUR],
+                     template=TEMPLATE)  # fmt: skip
         fig.update_layout(xaxis_title="Applicants", yaxis_title=x_label)
     else:
         fig = px.bar(x=series.index, y=series.values, text=series.values, title=title,
-                     color_discrete_sequence=[APPROVED_COLOUR])  # fmt: skip
+                     color_discrete_sequence=[NEUTRAL_COLOUR], template=TEMPLATE)  # fmt: skip
         fig.update_layout(xaxis_title=x_label, yaxis_title="Applicants", xaxis_type="category")
     fig.update_traces(textposition="outside")
-    return fig
+    return theme.style_figure(fig)

@@ -15,6 +15,7 @@ from loanlens.presentation import (
     thresholds_note,
 )
 from loanlens.schema import ValidationFailure
+from loanlens.theme import pill_html, policy_checks_html, status_label
 
 setup_page("Check My Eligibility", "🙋")
 policy = get_policy()
@@ -60,23 +61,27 @@ if checked:
         view = present(result, policy)
         st.divider()
         st.subheader("Your result")
-        badge_col, score_col = st.columns([2, 1])
-        with badge_col:
-            if view.approved:
-                st.success(f"### ✅ {view.status}\n{view.headline}")
-            else:
-                st.error(f"### ❌ {view.status}\n{view.headline}")
-        with score_col:
-            st.metric("Approval likelihood", view.likelihood)
-            st.caption(view.score_label)
+        with st.container(key=f"banner_{'approved' if view.approved else 'rejected'}"):
+            badge_col, score_col = st.columns([2, 1], vertical_alignment="center")
+            with badge_col:
+                alert = st.success if view.approved else st.error
+                alert(f"### {status_label(view.status)}\n{view.headline}")
+                if view.borderline:
+                    st.markdown(
+                        pill_html("⚠ Borderline - manual review recommended", "warning"),
+                        unsafe_allow_html=True,
+                    )
+            with score_col:
+                st.metric("Approval likelihood", view.likelihood)
+                st.caption(view.score_label)
         if view.borderline:
             st.warning(f"⚖️ **Borderline: manual review recommended.** {view.borderline_note}")
         st.info(f"**{view.notice}.**")
 
         if view.reasons:
             st.markdown("#### Why")
-            for reason in view.reasons:
-                with st.container(border=True):
+            for i, reason in enumerate(view.reasons):
+                with st.container(key=f"card_rejected_reason_{i}"):
                     st.markdown(f"**{reason.message}**")
                     st.caption(f"Your value: {reason.your_value}  |  Benchmark: {reason.benchmark}")
                     if reason.suggestion:
@@ -84,19 +89,20 @@ if checked:
 
         if not view.approved:
             st.markdown("#### What would likely change this")
-            st.markdown(view.change_summary)
-            st.caption("Estimates only: a change is never a guarantee of approval.")
+            with st.container(key="card_primary_change"):
+                st.markdown(f"🔁 {view.change_summary}")
+                st.caption("Estimates only: a change is never a guarantee of approval.")
 
         if view.positives:
             st.markdown("#### What is working in your favour")
-            for reason in view.positives:
-                with st.container(border=True):
-                    st.markdown(f"✔️ {reason.message}")
+            for i, reason in enumerate(view.positives):
+                with st.container(key=f"card_approved_positive_{i}"):
+                    st.markdown(f"✅ {reason.message}")
 
         for warning in view.warnings:
-            st.warning(warning)
+            st.warning(f"⚠️ {warning}")
 
         with st.expander("Policy checks"):
-            st.dataframe(view.rule_rows, hide_index=True, use_container_width=True)
+            st.markdown(policy_checks_html(view.rule_rows), unsafe_allow_html=True)
 
 footer()

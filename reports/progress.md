@@ -170,3 +170,23 @@
 
 **Open issues**
 - None.
+
+## UI restyle: white fintech theme (done)
+
+**What was done**
+- `src/loanlens/theme.py`: the single home for every colour (palette plus darker text shades for contrast), the status-to-colour mapping, the shared CSS, the Plotly template, and small HTML helpers (header strip, pill, policy-check list, status table styling).
+- `.streamlit/config.toml`: light base theme with the palette; stack traces stay hidden.
+- Every page gets the CSS and a branded header strip via `app/ui_common.py`.
+- Customer result: a large green/red banner with ✅/❌ status, amber borderline pill, and the likelihood inside it. Reason cards red, positive cards green, "what would change" blue, warnings amber, and policy checks with ✓/✗.
+- Bulk Check: coloured metric cards, a ✅/❌ status column coloured green/red (up to 5,000 visible rows), and an amber skipped-rows panel. The CSV download is unchanged.
+- Charts and notebooks share the Plotly template (Approved green, Rejected red, neutral blue, white background). Notebooks 02 and 03 were re-executed.
+- `reports/example_decisions.md` uses ✅/❌/⚠️.
+- Screenshots of every page are in `reports/screenshots/`.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 251 passed (new `tests/test_theme.py`: palette, status colours, config sync, WCAG contrast, table styling, chart colours, every page renders with the theme). No earlier test was changed.
+- `streamlit run app/Home.py`: all five pages return 200 and the server log has no errors.
+
+**Open issues**
+- None.

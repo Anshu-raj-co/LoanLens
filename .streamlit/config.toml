@@ -7,3 +7,13 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+# Light fintech theme. Colours mirror src/loanlens/theme.py (STREAMLIT_THEME); a test keeps
+# the two in sync. base = "light" forces the same look on every machine.
+[theme]
+base = "light"
+primaryColor = "#2E74E9"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F7FE"
+textColor = "#0F1B3D"
+font = "sans serif"
