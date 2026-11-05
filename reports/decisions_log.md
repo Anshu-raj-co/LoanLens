@@ -306,6 +306,28 @@ Each entry records what was found, what was chosen, and why.
 ### D-052 Screenshots
 - Playwright is not installed. Screenshots were captured with the locally installed Microsoft Edge in headless mode, driven over the DevTools protocol by a throwaway script kept outside the repository. Files: `reports/screenshots/01_home.png` to `07_about.png` (the eligibility page approved, and rejected + borderline with CIBIL 540; Bulk Check after uploading the 1,000-row test fixture).
 
+## Phase 9: Benchmark on `bank_loan_data.csv`
+
+### D-053 Profile and cleaning
+- **Found:** 45,000 rows, 14 columns, no missing values, no duplicates, exactly 10,000 approved / 35,000 rejected (22%). Currency is not stated; amounts look like USD (median income about 67,000, loans 500 to 35,000). Credit scores 390 to 850 (FICO-style scale, not CIBIL's 300-900). Impossible values (ages up to 144, experience up to 125 years) confirm it is synthetic.
+- **Chose:** drop the 7 rows with age above 100 (no row has experience longer than age - 14, so that check removes nothing); map `previous_loan_defaults_on_file` to 0/1; drop `person_gender` **and `person_age`** before any modelling. Age is not named in CLAUDE.md, but it is a sensitive attribute, so it is excluded as well.
+- Education is kept as a feature (it has no effect in either dataset).
+
+### D-054 Label caution
+- **Found:** the dataset card defines `loan_status` 1 = approved, but approval rises with interest rate, loan-to-income and renting. That matches the *default* label of the credit-risk dataset it was derived from. Every applicant with a previous default is rejected, which does match an approval label.
+- **Chose:** treat it as the approval decision, as documented, and state clearly in the notebook and `reports/benchmark.md` that those directions are not lessons.
+
+### D-055 Modelling setup
+- **Chose:** the same algorithms and hyperparameters as `03_modelling`, the same `cross_validate` / `summary_table` helpers from `loanlens.model`, stratified 5-fold CV with seed 42, preprocessing inside each fold, threshold 0.5. Class imbalance is handled with `class_weight="balanced"` (logistic regression, random forest) and `scale_pos_weight` = rejected / approved (XGBoost). `n_jobs=-1` is used for speed; results do not depend on it.
+- The benchmark pipeline lives only in the notebook (it is analysis code, not app logic), so `src/loanlens` is unchanged apart from the About page text.
+- **Model safety:** the notebook imports neither `train_final` nor `save_artifact`; the SHAP model is fitted in memory only. The SHA-256 of `models/loanlens_model.joblib` was identical before and after running the notebook, and a test checks the notebook source.
+
+### D-056 Results
+- XGBoost ROC-AUC 0.978, PR-AUC 0.938, F1 0.816; random forest ROC-AUC 0.974, F1 0.833; logistic regression ROC-AUC 0.954, F1 0.741.
+- Ablations: credit score alone 0.501 (chance); removing it changes ROC-AUC from 0.978 to 0.977; removing previous defaults drops it to 0.935.
+- SHAP share: previous defaults 58%, income 8%, interest rate 8%, loan purpose 7%, home ownership 7%, loan-to-income 7%, credit score 3%.
+- **Conclusion:** each synthetic dataset is dominated by one rule-like field (CIBIL in the primary, previous defaults in the benchmark). A real system needs previous defaults, employment experience, home ownership, loan purpose, the offered rate and existing EMIs. Details in `reports/benchmark.md`; a short summary is on the About page.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.

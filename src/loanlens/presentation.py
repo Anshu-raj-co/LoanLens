@@ -27,6 +27,22 @@ PRIVACY_NOTE = (
     "and discarded when you leave the page."
 )
 
+BENCHMARK_SUMMARY = (
+    "LoanLens was also tested on a second, larger public synthetic dataset "
+    "(`bank_loan_data.csv`, 45,000 applicants, amounts that look like US dollars, FICO-style "
+    "credit scores up to 850). It was used only for comparison: it was not merged with the "
+    "training data and did not change the model.\n\n"
+    "- **Different dominant feature:** here CIBIL decides most outcomes; there, a *previous "
+    "loan default* does (every applicant with one was rejected), and credit score had no "
+    "effect at all.\n"
+    "- **Performance:** about 0.98 ROC-AUC there (with class weights, because only 22% were "
+    "approved) against about 0.99 here. Both are high only because each synthetic dataset "
+    "follows one rule-like field.\n"
+    "- **Lesson:** a real system should also collect previous defaults, employment "
+    "experience, home ownership, loan purpose, the offered interest rate and existing EMIs.\n\n"
+    "Full comparison: `reports/benchmark.md`."
+)
+
 
 @dataclass(frozen=True)
 class FormField:

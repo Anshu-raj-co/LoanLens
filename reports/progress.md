@@ -190,3 +190,18 @@
 
 **Open issues**
 - None.
+
+## Phase 9: Benchmark on the larger dataset (done)
+
+**What was done**
+- `notebooks/04_benchmark_bank_loan_data.ipynb`: profile (columns, types, class balance, currency, missing values, ranges, synthetic signs, label caution), cleaning, EDA charts in the LoanLens theme, logistic regression / random forest / XGBoost with stratified 5-fold CV and class weights, confusion matrices, ablations, and SHAP. Gender and age are excluded.
+- `reports/benchmark.md`: side-by-side comparison of the two datasets (features that matter, performance, currency and score scales, extra fields a real system should collect).
+- About page: a short "Benchmark" section (`presentation.BENCHMARK_SUMMARY`).
+- Not merged with the primary data; the production model file is byte-identical before and after.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 256 passed (new `tests/test_benchmark.py`: the notebook never touches the production model, excludes sensitive features and ran without errors; the report covers the required points; the About page shows the summary).
+
+**Open issues**
+- The benchmark label's direction for interest rate and loan-to-income looks like a default label (D-054).
