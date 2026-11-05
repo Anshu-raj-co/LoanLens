@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environment
+.venv/
+.env
+
+# Model artifacts
+models/*
+!models/.gitkeep
+
+# Raw data (large / third-party; never commit bank data)
+data/raw/*
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
