@@ -137,7 +137,48 @@ Each entry records what was found, what was chosen, and why.
 ### D-024 Model artifact
 - **Chose:** a joblib dict (model, features, version 1.0.0, monotone constraints, training ranges, medians of approved applicants used as benchmarks, CV metrics) plus a JSON sidecar. `models/` stays gitignored, so `python -m loanlens.model` rebuilds it. The test fixture trains it automatically if it is missing.
 
+## Phase 5: Explainability and decision engine
+
+### D-025 Decision flow details
+- **Chose:** `decide()` follows CLAUDE.md section 5: validate, run the rules, run the model, set the borderline flag, build the reasons.
+  - Any *enforced* rule failure means Rejected, whatever the model probability (review decision 3). Advisory failures become warnings that start with "Advisory check:".
+  - The model probability is still reported when a rule rejects, for transparency. For example, the 5x-income example shows 60% but is Rejected.
+  - `borderline` is set only when no enforced rule failed, because manual review cannot override a hard rule.
+- **Invalid input** returns `ValidationFailure` (a list of `FieldError`s with plain-English messages) instead of a `DecisionResult`, so there is no decision at all.
+
+### D-026 Loan term is never used as a model reason
+- **Found:** SHAP blames the loan term for low-CIBIL rejections (for example "8 years was approved less often"), because the term effect comes from the synthetic short-term quirk.
+- **Chose:** `loan_term` stays a model feature but is never turned into a reason or a positive factor, and "what would change" never touches it (review decision 5). Rule failures on the term limits (outside 2 to 20 years) still state the limit, because that is policy.
+
+### D-027 Reason construction
+- **Chose:** rule reasons first (in rule order), then SHAP drivers with |SHAP| >= 0.25 log-odds, ranked by size, with model drivers already covered by a rule removed (e.g. "LOW_CIBIL" when `min_cibil` failed). At most 5 reasons.
+  - A negative model reason is shown only if the applicant's value is on the weaker side of the median approved applicant. A high income is never called a weakness.
+  - Benchmarks are medians of approved applicants, saved in the model artifact.
+- **Fallback:** if a rejection somehow has no reason, an "OVERALL_PROFILE" reason is added. In the full-data run this never triggered.
+- **Positive factors** (approvals only): up to 3 positive SHAP drivers. If none clears 0.25, the largest positive driver is used, so every approval gets at least one. Approved results have `reasons == []`. Positive factors go in a separate `positive_factors` field (an addition to the CLAUDE.md output list) so they can never be confused with rejection reasons.
+
+### D-028 What would change
+- **Chose:** two searches, one feature at a time, each re-running the full decision (enforced rules + model):
+  - CIBIL raised in steps of 5 up to 900.
+  - The loan reduced from 99% to 10% of the request in 1% steps, rounded down to Rs 10,000.
+- The first approved candidate is reported with "would likely". Because the model is monotone in CIBIL and loan-to-income, the first flip is also the smallest. It never suggests a bigger loan or a different term (enforced by tests).
+- If only a term change would help (e.g. a 25-year term), no suggestion is given, and the summary says no single change would likely help.
+
+### D-029 Probability display
+- **Found:** isotonic calibration returns exactly 0 or 1 for many applicants.
+- **Chose:** the example report shows ">99%" / "<1%" instead of "100%" / "0%", to avoid implying certainty. The app should do the same (see Suggestions).
+
+### D-030 Full-data check of the decision engine
+- **Found:** across all 4,269 historical rows (about 16 ms per decision):
+  - Agreement with the labels is 95.5%.
+  - 1,791 are Rejected, all with at least one reason. 1,785 are led by the CIBIL rule, 4 by low assets and 2 by low income.
+  - 11 are borderline.
+  - Every rejection gets a "what would change" suggestion.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
 - Settle the EMI-to-income cap (D-012) with a lender's credit-policy team before building `rules.py`.
+- In the app phase, display probabilities above 99% as ">99%" and below 1% as "<1%" (isotonic output reaches exactly 0 and 1), and show the model probability alongside any rule-based rejection with a clear "policy rule applied" label.
+- In the batch phase, vectorise `decide()` (rules via `rule_pass_frame`, a single `predict_proba`, and SHAP on the whole batch) instead of calling it row by row. At about 16 ms per row, 1,000 rows would take about 16 s.
+- Consider a co-applicant income field later; the dataset has none, so it was not modelled.

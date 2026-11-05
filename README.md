@@ -34,6 +34,7 @@ pip install -e .                 # make `loanlens` importable
 python -m loanlens.cleaning       # build data/processed/loan_approval_clean.csv
 python -m loanlens.rules          # write reports/rules_vs_labels.md
 python -m loanlens.model          # train and save models/loanlens_model.joblib
+python scripts/example_decisions.py  # write reports/example_decisions.md
 ruff check .
 pytest
 ```

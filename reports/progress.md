@@ -94,3 +94,20 @@
 **Open issues**
 - The constrained model disagrees with the quirky historical labels by design (D-021).
 - Isotonic calibration makes borderline cases rare (D-022).
+
+## Phase 5: Explainability and decision engine (done)
+
+**What was done**
+- `src/loanlens/schema.py`: `ApplicantInput` (Pydantic, ranges, finite numbers only, unknown fields ignored), friendly `ValidationFailure` messages, and the output models `Reason`, `Change`, `DecisionResult`.
+- `src/loanlens/explain.py`: TreeSHAP drivers turned into bank-officer wording, each with code, message, your_value, benchmark and suggestion; rule reasons; merge, rank and cap at 5; positive factors; the "what would change" search (raise CIBIL or lower the loan only, worded "would likely").
+- `src/loanlens/decision.py`: `decide()` validates, runs the rules (enforced vs advisory), runs the model, sets the borderline flag, then builds reasons, positive factors, changes and warnings (advisory rules, out-of-training-range inputs, borderline).
+- `scripts/example_decisions.py` writes `reports/example_decisions.md`: 2 approved, 2 rejected (CIBIL rule; loan-to-income and loan-to-assets rules), 1 borderline.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 146 passed. New `test_schema.py` and `test_decision.py` check that every rejection has a non-empty reason, approvals carry no rejection reasons, invalid input gets an error and no decision, results are deterministic, enforced rules override the model, suggestions only raise CIBIL or lower the loan and actually flip the result, and a decision takes under 2 seconds.
+- Full-data run: 4,269 decisions at about 16 ms each, 0 rejections without a reason.
+
+**Open issues**
+- Single-row `decide()` is about 16 ms, so batch scoring should be vectorised in the batch phase (see Suggestions).
+- All thresholds remain placeholders.
