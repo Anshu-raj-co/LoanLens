@@ -222,8 +222,13 @@
 - `ruff check .`: all checks passed.
 - `pytest`: 281 passed; coverage of `src/loanlens` 98% (`pytest --cov=loanlens`).
 - `streamlit run app/Home.py`: all five pages return 200, no errors in the server log.
-- Fresh clone: see the entry below.
+- Fresh clone: verified, see below.
 
 **Open issues**
 - All policy thresholds, enforce flags and the assumed 10% interest rate are illustrative until replaced by a lender's real credit policy.
 - Dataset licences not verified; the source page of `loan_data.csv` was not recorded (D-060).
+
+### Fresh-clone verification (Phase 10)
+- `git clone` into an empty, gitignored folder inside the project (`.fresh_clone_test/`, deleted afterwards), then `py -3.11 -m venv .venv` and `pip install -r requirements.txt`: 5.5 minutes, no errors. `loanlens` was importable from the clone's `src/` with no extra step.
+- **Before any data:** `python -m loanlens.model` stopped with "Missing ...loan_approval_dataset.csv. Download ... into data/raw/". The eligibility and Analytics pages showed the friendly "model has not been trained yet ... run `python -m loanlens.model`" message, with no exception. `pytest`: 184 passed, 97 skipped (data and model needed), 0 failed, after five tests were fixed to request the model fixture (they had failed instead of skipping).
+- **After copying the three CSVs into `data/raw/`:** `python -m loanlens.model` built the cleaned data and the model in 7 seconds, with the same CV metrics as the model card (ROC-AUC 0.9942, F1 0.9639). `streamlit run app/Home.py`: health ok, all five pages returned 200, every page was driven in headless Edge (including a 1,000-row upload with the demo password), and the server log had no errors. `pytest`: 281 passed.
