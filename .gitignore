@@ -34,3 +34,7 @@ data/processed/*
 .streamlit/secrets.toml
 .coverage
 htmlcov/
+*.sqlite*
+
+# Large generated test files (e.g. 50k-row stress tests)
+big_*.csv

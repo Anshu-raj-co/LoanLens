@@ -251,3 +251,6 @@
 - `pytest`: 281 passed. `ruff check .`: all checks passed.
 - `streamlit run app/Home.py` from the clone: every page (Home, Check My Eligibility with approved / rejected / borderline examples, Bulk Check with the 1,000-row synthetic upload, Analytics, About) was driven in headless Chromium; the server log had no errors.
 - The temporary clone and its virtual environment were deleted afterwards; `git status` in the project showed only the intended changes.
+
+### History rewrite and audit
+- Backup bundle created; history rewritten with `git filter-repo` (terms scrubbed, author and committer set to the GitHub no-reply identity, historical dataset copies and old screenshots stripped). 0 matches remain in `git log --all -p`. ruff passes, 281 tests pass. See D-066 and D-067.

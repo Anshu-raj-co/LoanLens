@@ -419,6 +419,19 @@ Each entry records what was found, what was chosen, and why.
 - **Password:** the server was started with a random, never-printed `LOANLENS_MANAGER_PASSWORD`, so neither a real nor the demo password was typed on screen (the field shows only masked dots) and the "demo password in use" note does not appear.
 - **Files:** the seven existing names were kept and `08_eligibility_rejected.png` was added for the plain rejected result. Each PNG was quantised to 256 colours (48-194 KB) and checked visually: no blank pages, errors or bank names. Old screenshots in the git history showed the former wording, so they are removed from history during the rewrite (D-066).
 
+### D-066 History rewrite before publication
+- **Found:** before the rewrite, 14 of 18 commits contained the former affiliation / reviewer wording (no commit *message* did). Every commit's author and committer used a personal email. Earlier commits also held `data/processed/loan_approval_clean.csv` (a full cleaned copy of the Kaggle data, D-060), the old Kaggle-sample test fixture, and old screenshots showing the former wording.
+- **Chose:** the GitHub repository was empty, so rewriting was safe. A backup bundle of the original history was made first (`../loanlens-backup.bundle`, verified, unchanged afterwards). Then `git filter-repo` (2.45.0, installed in the venv) ran with:
+  - `--replace-text` / `--replace-message`: the specific phrasings mapped to the Step 1 wording, followed by case-insensitive safety nets;
+  - `--mailmap`: every author and committer set to `Anshu Raj <59351492+Anshu-raj-co@users.noreply.github.com>` (GitHub no-reply address, so no personal email is exposed);
+  - `--strip-blobs-with-ids`: the 15 historical versions of the processed dataset, the old fixture and the old screenshots. The current synthetic fixture and screenshots are kept. Historical commits therefore lack those files, and their tests would not run as-is; only the final commit is meant to be run.
+- **Result:** 17 commits (one became empty and was pruned). `git log --all -p` finds 0 matches for the scrubbed terms. ruff passes and 281 tests pass on the rewritten `main`. Tag `v1.0` was deleted before the rewrite and recreated on the final commit. The repository's `user.name` / `user.email` are set to the same identity.
+
+### D-067 Pre-push audit
+- **Tracked files (77):** code, tests, the synthetic `tests/fixtures/`, notebooks, `reports/` (with screenshots), `config/policy.yaml`, `.streamlit/config.toml`, requirements files and documentation. No tracked file is over 1 MB; the largest blob in history is a notebook (946 KB).
+- **Confirmed ignored:** `data/raw/`, `data/processed/`, `models/`, `.venv/`, `.fresh_clone_test/`, `__pycache__/`, `.streamlit/secrets.toml`, `.env`, `*.db`, `*.sqlite*`, notebook checkpoints and `.coverage`. Two gaps were closed: `*.sqlite*` (journal files) and `big_*.csv` (stress-test files).
+- **Secret scan (tracked files and full history):** no keys, tokens or private keys. The only hard-coded password is the documented local demo default `loanlens-demo`, plus the README example value `"choose-a-password"`. The only email addresses in history are the GitHub no-reply address and the co-author attribution address.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
