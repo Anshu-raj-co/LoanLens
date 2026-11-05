@@ -1,6 +1,6 @@
 # Decisions Log
 
-This log has two parts. **Part 1** is a clean list of every assumption and placeholder for a lender's credit-policy team to review. **Part 2** is the full record, phase by phase, of what was found, what was chosen, and why (entries D-001 to D-061).
+This log has two parts. **Part 1** is a clean list of every assumption and placeholder for a lender's credit-policy team to review. **Part 2** is the full record, phase by phase, of what was found, what was chosen, and why (entries D-001 to D-064). Every value in Part 1 is illustrative: a lender would replace it with its own credit policy.
 
 ## Part 1: Assumptions and placeholders for a lender's credit-policy team to review
 
@@ -29,10 +29,10 @@ Rule of thumb used for the enforce flags: a rule is enforced only if it fails fe
 | A6 | `batch.max_rows` | 50,000 rows | Set from measured speed (50,000 rows scored in 16-32 s). | D-040, D-059 |
 | A7 | `storage.store_applicant_ids` | false | Only anonymised batch summaries are stored. | D-041 |
 | A8 | `cleaning.negative_assets_strategy` | clip_zero | The 28 rows with residential assets of -1,00,000 are treated as 0. | D-006 |
-| A9 | Manager password | env `LOANLENS_MANAGER_PASSWORD` or secret `manager_password`; local demo default `loanlens-demo` | Prototype gate, not authentication. | D-057 |
+| A9 | Manager password | env `LOANLENS_MANAGER_PASSWORD`, else secret `manager_password` in the gitignored `.streamlit/secrets.toml`, else the documented local demo default `loanlens-demo` (the sidebar says when the demo default is in use) | Prototype gate, not authentication: no accounts, roles, lockout or audit log. Constant-time comparison. Never host the app with the demo password. | D-057 |
 | A10 | Model | Monotone-constrained, isotonic-calibrated XGBoost on CIBIL, loan term, loan-to-income, income, total assets | Trained on synthetic Kaggle data only; predicts the approval decision, not default. | D-019 to D-024 |
 | A11 | Feature importance measure | Mean absolute SHAP share (CIBIL 57%) | One measure everywhere. | D-045, D-058 |
-| A12 | Data licences | Not verified | The Kaggle CSVs are not committed; the source page of `loan_data.csv` was not recorded. | D-060 |
+| A12 | Data licences | Kaggle metadata shows MIT for the primary and benchmark datasets; `loan_data.csv` source not verified | The Kaggle CSVs are not committed; the test fixture is fully synthetic. | D-060, D-063, D-064 |
 
 ### Known data quirks a lender's credit-policy team should be aware of
 
@@ -405,6 +405,14 @@ Each entry records what was found, what was chosen, and why.
 ### D-062 Reframed as an independent proof of concept
 - **Found:** 56 occurrences of the former affiliation / reviewer wording across 16 files (22 in `config/policy.yaml` comments; the rest in CLAUDE.md, README, USER_GUIDE, two app pages, `presentation.py` and `rules.py` user-facing text, notebook 02 and 04 markdown cells, and five reports).
 - **Chose:** LoanLens is an independent proof of concept by Anshu Raj, to be pitched to lenders, with no bank affiliation or endorsement. Every placeholder note now reads "PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy" or "illustrative until replaced by a lender's real credit policy"; review notes are "for a lender's credit-policy team to review". `reports/rules_vs_labels.md` was regenerated from `rules.py` and matches. No test asserted the old wording; `test_thresholds_note_mentions_placeholders` now also checks the new wording and that no bank is named. Behaviour is unchanged.
+
+### D-063 Dataset credits re-checked
+- **Found:** README credited `bank_loan_data.csv` to a different Kaggle upload (`taweilo/loan-approval-classification-data`). The file was actually downloaded from https://www.kaggle.com/datasets/udaymalviya/bank-loan-data. Kaggle's metadata API (the HTML pages render no content to a script) shows: `udaymalviya/bank-loan-data`, MIT licence, 45,000 records, 14 columns matching ours, described as synthetic, with `loan_status` described as 1 = repaid, 0 = defaulted; `architsharma01/loan-approval-prediction-dataset`, MIT licence. The source of the 381-row `loan_data.csv` could not be verified.
+- **Chose:** README now cites the two verified pages with "licence shown: MIT" (and asks readers to check before redistributing) and says "source not verified" for `loan_data.csv`. `reports/benchmark.md` adds one sentence noting that the source page itself calls the label repaid/defaulted, which strengthens the existing label caution (D-054). The benchmark notebook's analysis and numbers are unchanged.
+
+### D-064 Fully synthetic test fixture
+- **Found:** `tests/fixtures/batch_1000.csv` held 980 rows sampled from the primary Kaggle dataset, and its 20 bad rows were built on one real row.
+- **Chose:** replaced it with a fully synthetic file from `scripts/make_batch_fixture.py` (seed 20261106): CIBIL uniform 300-900, income 2-99 lakh, loan 1.5x-4x income, even terms 2-20 years, assets scaled to income, about 5% of incomes and loan amounts written with Indian grouping, and the same 20 bad rows (same line numbers and error types) so `tests/test_batch.py` needed no change. Scored result: 980 valid rows, 547 Approved, 433 Rejected, 80 borderline; all 281 tests pass. Since nothing in the repository now comes from the Kaggle files, the earlier caveat in D-060 about redistributing the fixture no longer applies.
 
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.

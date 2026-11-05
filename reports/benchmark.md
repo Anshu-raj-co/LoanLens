@@ -57,7 +57,7 @@ In the primary data the equivalent picture is the reverse: CIBIL alone reaches R
 
 ## Cautions
 
-- **Label direction in the benchmark:** approval *rises* with interest rate (about 9% to 49% across fifths), with loan-to-income (11% to 55%) and for renters. That is the opposite of sound lending logic and matches the *default* label of the credit-risk dataset this one was derived from. The label may mix approval and default semantics, so these directions must not be read as lessons.
+- **Label direction in the benchmark:** approval *rises* with interest rate (about 9% to 49% across fifths), with loan-to-income (11% to 55%) and for renters. That is the opposite of sound lending logic and matches the *default* label of the credit-risk dataset this one was derived from. The label may mix approval and default semantics, so these directions must not be read as lessons. (The Kaggle page this copy was downloaded from, https://www.kaggle.com/datasets/udaymalviya/bank-loan-data, itself describes `loan_status` as 1 = repaid, 0 = defaulted, while other uploads of the same 45,000 rows call it an approval label.)
 - **Neither dataset reflects any real lender's policy.** The difference in dominant feature (CIBIL vs previous defaults) shows how much a synthetic generator decides what a model learns.
 
 ## What a real system should collect
