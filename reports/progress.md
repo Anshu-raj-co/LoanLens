@@ -133,3 +133,20 @@
 
 **Open issues**
 - None.
+
+## Phase 7: Bank manager batch mode (done)
+
+**What was done**
+- `src/loanlens/batch.py`: CSV reading (delimiter detection, BOM and encoding handling, size limit), header normalisation with aliases and exact missing-column errors, vectorised row validation with row-numbered reasons, chunked scoring through the shared `decide_many()` core, summary, filters and search, results CSV, and a 3-row template.
+- `src/loanlens/storage.py`: SQLite storage of anonymised batch summaries. Per-row IDs only if enabled in config.
+- `app/pages/2_Bulk_Check.py`: manager-mode toggle, template download, upload (up to 50,000 rows), skipped-row report, progress bar, summary metrics and top rejection reasons, results table with status, borderline and search filters, CSV download, and anonymised summary saving.
+- `tests/fixtures/batch_1000.csv`: 1,000 rows, 20 deliberately bad.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 223 passed. New `test_batch.py` covers good CSV, bad rows, missing columns, empty and BOM-only files, header-only file, other delimiters, header aliases and duplicates, too many rows, 1,000 rows in 10 s or less, 10,000 rows in 90 s or less, batch vs single consistency on 600 rows, storage anonymity, and the page (gate, fixture upload, missing columns, empty file).
+- Measured speed: 1,000 rows 0.7 s, 10,000 rows 6.2 s, 50,000 rows 32 s.
+- `streamlit run app/Home.py`: server healthy, pages return 200, no errors in the server log.
+
+**Open issues**
+- None.

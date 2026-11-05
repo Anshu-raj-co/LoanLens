@@ -208,6 +208,47 @@ Each entry records what was found, what was chosen, and why.
 ### D-037 Privacy and errors
 - **Chose:** the customer page imports nothing from storage, writes no files and does not log; a test checks the page source for this. `.streamlit/config.toml` sets `showErrorDetails = false`, so no stack trace reaches users even if something unexpected escapes. Each page also catches errors and shows a friendly message.
 
+## Phase 7: Bank manager batch mode
+
+### D-038 CSV handling
+- **Chose:**
+  - The delimiter (comma, semicolon, tab or pipe) is detected from the header line, so a "wrong delimiter" file is read correctly instead of rejected. A file that cannot be split at all ends up as "Required columns are missing: ..." with each column named.
+  - Text is decoded as UTF-8 (BOM tolerated), falling back to cp1252.
+  - Fully blank lines are skipped.
+- **Headers:** run through the same `normalise_column_name` as cleaning, then an alias table (e.g. Income / annual_income to `income_annum`, Tenure to `loan_term`, Loan ID to `applicant_id`). Two headers that map to the same column produce a clear error. Unrecognised columns (e.g. a name column) are listed as "not used" and never read further.
+- **All 8 inputs are required columns.** A blank asset *cell* is a row error ("... is missing.") rather than a silent 0. A silent 0 would make the loan-to-assets rule reject the row with a misleading reason.
+
+### D-039 Row validation mirrors customer mode
+- **Chose:** vectorised checks using the same limits, read from `ApplicantInput`'s field metadata so they cannot drift, and the same messages as `schema.validate_applicant`. A test checks that every bad fixture row is also rejected by the customer validator.
+- Amounts like "12,50,000" or "Rs 5,00,000" are accepted. Row numbers are spreadsheet rows (header = row 1). Every problem in a row is reported, and the row is skipped.
+
+### D-040 Scoring, consistency and speed (review decision 4)
+- **Chose:** `batch.score()` calls `decide_many()` (the customer-mode core) in chunks of `batch.chunk_size` (2,000), which drives the progress bar and bounds memory.
+  - Reasons and "what would change" are built for rejected rows only. Positive factors only when the UI option is ticked. Features, rules and model are vectorised, and SHAP runs on the whole chunk.
+- **Measured (this laptop, single-threaded XGBoost):**
+  - 1,000 rows: 0.7 s (target 10 s or less)
+  - 10,000 rows: 6.2 s (target 90 s or less)
+  - 50,000 rows: 32 s
+  - So the maximum upload stays at **50,000 rows** (`batch.max_rows`), stated in the UI and README.
+- **Consistency test:** 600 fixture rows match `decide()` exactly on status, probability (within 1e-6), reasons and the borderline flag.
+- **Output columns:** row, applicant_id, status, probability (stored value), likelihood (display text with band, never 0% or 100%), borderline, reasons ("; "-separated), what_would_change, warnings, reason_codes (machine-readable, used for the summary).
+  - `row`, `likelihood`, `warnings` and `reason_codes` are additions to the required list. The warnings carry the out-of-range and advisory notices CLAUDE.md requires.
+
+### D-041 Storage
+- **Chose:** `storage.py` (stdlib `sqlite3`) writes one row per batch to `batch_summaries` in `data/loanlens.sqlite` (gitignored via `*.sqlite`). The row holds counts, approval rate, likelihood-band counts, top rejection reason codes and the model version. There are no IDs, names or input values; a test checks that the database file contains no applicant IDs.
+- Per-row ID, status and probability go to `batch_rows` only if `storage.store_applicant_ids: true`. The default is false.
+- A storage failure never blocks the results; the page shows a small note instead.
+
+### D-042 Bank manager gate
+- **Chose:** a sidebar "Bank manager mode" toggle (CLAUDE.md section 7 allows a toggle). It is clearly labelled as a prototype gate, not authentication. Real authentication remains future work.
+
+### D-043 Test fixture
+- **Chose:** `tests/fixtures/batch_1000.csv` has 980 real rows from the cleaned public synthetic dataset, with about 5% of amounts written as "12,50,000"-style text. It also has 20 deliberately bad rows at known positions: blank, non-numeric, decimal, out-of-range, zero, negative and infinite values across all columns.
+
+### D-044 Testing the upload path
+- **Found:** Streamlit 1.40's AppTest cannot drive `st.file_uploader`.
+- **Chose:** the page tests replace `st.file_uploader` with a stub (monkeypatch) and point storage at a temporary file. The post-upload path (summary, filters, saving) is then exercised headlessly.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -215,3 +256,4 @@ Each entry records what was found, what was chosen, and why.
 - In the app phase, display probabilities above 99% as ">99%" and below 1% as "<1%" (isotonic output reaches exactly 0 and 1), and show the model probability alongside any rule-based rejection with a clear "policy rule applied" label.
 - In the batch phase, vectorise `decide()` (rules via `rule_pass_frame`, a single `predict_proba`, and SHAP on the whole batch) instead of calling it row by row. At about 16 ms per row, 1,000 rows would take about 16 s.
 - Consider a co-applicant income field later; the dataset has none, so it was not modelled.
+- For uploads above 50,000 rows, XGBoost could use more threads (`n_jobs`) at scoring time only; training stays single-threaded for determinism.

@@ -27,6 +27,18 @@ Place the datasets in `data/raw/` (they are not committed):
 - `bank_loan_data.csv` (benchmark only)
 - `loan_data.csv` (sanity check only)
 
+## Run the app
+
+```bash
+python -m loanlens.model          # once, if models/loanlens_model.joblib is missing
+streamlit run app/Home.py
+```
+
+- **Check My Eligibility**: customer form with an instant, explained result. Nothing is stored.
+- **Bulk Check**: turn on *Bank manager mode* in the sidebar, download the CSV template, and upload up to **50,000 rows** per file (measured: about 0.7 s per 1,000 rows, about 32 s for 50,000). Invalid rows are listed and skipped. Results can be filtered and downloaded. Only anonymised batch summaries are saved, to `data/loanlens.sqlite`.
+
+All policy thresholds in `config/policy.yaml` are illustrative placeholders illustrative until replaced by a lender's real credit policy.
+
 ## Development
 
 ```bash

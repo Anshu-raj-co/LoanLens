@@ -47,6 +47,21 @@ RULE_SUGGESTION = {
     "max_loan_term_years": "Please speak to a loan officer about the repayment period.",
 }
 
+# Short labels for summaries (e.g. "top rejection reasons" in Bulk Check).
+REASON_LABELS: dict[str, str] = {
+    "RULE_MIN_CIBIL": "CIBIL score below the policy minimum",
+    "RULE_MAX_EMI_TO_INCOME": "EMI too high for income",
+    "RULE_MAX_LOAN_TO_INCOME": "Loan too large for income",
+    "RULE_MAX_LOAN_TO_ASSETS": "Loan too large for declared assets",
+    "RULE_MIN_LOAN_TERM_YEARS": "Loan term shorter than allowed",
+    "RULE_MAX_LOAN_TERM_YEARS": "Loan term longer than allowed",
+    "LOW_CIBIL": "CIBIL score lower than typical approvals",
+    "HIGH_LOAN_TO_INCOME": "Loan high relative to income",
+    "LOWER_INCOME": "Income lower than typical approvals",
+    "LOW_ASSETS": "Assets lower than typical approvals",
+    "OVERALL_PROFILE": "Overall profile below the approval threshold",
+}
+
 
 @dataclass(frozen=True)
 class _Template:
