@@ -85,9 +85,23 @@ The scores are near-perfect because the synthetic label is close to a determinis
 | Without loan term | 0.9822 | 0.9547 |
 | Without loan-to-income | 0.9948 | 0.9663 |
 
-- CIBIL accounts for about 74% of the model's total gain. In the data, 99.5% of applicants above CIBIL 550 are approved, against 10.6% at or below.
+- CIBIL has the largest share of the model's influence (57%, see "Feature importance" below). In the data, 99.5% of applicants above CIBIL 550 are approved, against 10.6% at or below.
 - Shuffled labels give ROC-AUC 0.499 (chance). No identifier or target-derived feature is used, and there are no duplicate rows.
 - The remaining signal (loan term, loan-to-income) comes from a synthetic quirk. Among low-CIBIL applicants, 2 and 4 year loans with a *high* loan-to-income ratio were approved.
+
+## Feature importance
+
+One measure is used for every headline figure in LoanLens (this card, the Analytics page and the About page): the **mean absolute SHAP share**, i.e. each feature's average influence on the model score across the 4,269 training applicants, as a share of the total.
+
+| Feature | Share of influence |
+|---|---|
+| CIBIL score | 57% |
+| Loan term | 19% |
+| Total assets | 12% |
+| Annual income | 7% |
+| Loan-to-income ratio | 4% |
+
+Loan term's share comes from the synthetic short-term quirk described above, not from real lending policy. (An earlier version of this card quoted XGBoost's internal "gain", which put CIBIL at about 74%. Gain measures how much each feature improves the tree splits during training, not how much it moves an applicant's score, so it gives a different number for the same model. It is no longer used as a headline.)
 
 ## Constraints (why the model disagrees with some labels)
 

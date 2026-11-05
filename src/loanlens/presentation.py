@@ -263,3 +263,32 @@ def form_defaults() -> dict[str, int]:
 def form_matches_schema() -> bool:
     """True if the form collects exactly the fields the decision engine needs."""
     return [f.name for f in FORM_FIELDS] == list(ApplicantInput.model_fields)
+
+
+def borderline_explainer(policy: Policy) -> str:
+    """Plain-language explanation of the borderline flag (About page; mirrored in USER_GUIDE)."""
+    band = policy.model.borderline_band
+    margin = policy.model.borderline_cibil_margin
+    min_cibil = policy.rules.min_cibil.value
+    bands = policy.display.probability_bands
+    return (
+        "A result is marked **borderline - manual review recommended** when it is too close "
+        "to call. The result itself is still *Approved* or *Rejected*; the flag only suggests "
+        "that a person should take a second look. It is raised in two situations:\n\n"
+        f"1. **The model score is close to the cut-off:** between {band.lower:.0%} and "
+        f"{band.upper:.0%}, and no enforced policy rule was failed.\n"
+        f"2. **The CIBIL score is close to the minimum:** within {margin:g} points of "
+        f"{min_cibil:.0f} on either side (so {min_cibil - margin:.0f} to "
+        f"{min_cibil + margin:.0f}). A score of {min_cibil - 10:.0f} is rejected by the "
+        "CIBIL rule but flagged, because a small difference in the score could change the "
+        "outcome.\n\n"
+        "**Why a CIBIL score near the minimum is not flagged when another rule also failed:** "
+        "if the application also breaks a different enforced rule (for example a loan term "
+        "longer than the maximum, or a loan far above the income limit), it would be rejected "
+        "even with a better CIBIL score. A manual review of the CIBIL score could not change "
+        "that result, so flagging it as borderline would be misleading.\n\n"
+        "The verbal likelihood band shown next to the score (for example *Borderline* for "
+        f"{bands.borderline:.0%}-{bands.likely:.0%}) is a separate, wider display label; only "
+        "the flag above means *manual review recommended*. All of these values are "
+        "placeholders in `config/policy.yaml`."
+    )

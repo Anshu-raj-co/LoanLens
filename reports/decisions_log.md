@@ -1,5 +1,47 @@
 # Decisions Log
 
+This log has two parts. **Part 1** is a clean list of every assumption and placeholder for a lender's credit-policy team to review. **Part 2** is the full record, phase by phase, of what was found, what was chosen, and why (entries D-001 to D-061).
+
+## Part 1: Assumptions and placeholders for a lender's credit-policy team to review
+
+### Policy rules (`config/policy.yaml`, all PLACEHOLDER)
+
+| # | Setting | Current value | Enforced? | Effect today | Why this value | Ref |
+|---|---|---|---|---|---|---|
+| P1 | `rules.min_cibil` | 550 | **Yes**: below 550 is always Rejected, whatever the model says | Fails 7.0% of applicants approved in the data | Where approval drops from about 99% to about 10% in the data | D-016, D-025 |
+| P2 | `rules.max_loan_to_income` | 4.0x annual income | **Yes** | Fails 0% of approved applicants | Data range is 1.5x to 4.0x | D-016 |
+| P3 | `rules.max_loan_to_assets` | 1.5x total assets | **Yes** | Fails 0% of approved applicants | Generous illustrative cap | D-016 |
+| P4 | `rules.min_loan_term_years` | 2 years | **Yes** | Fails 0% | Data minimum | D-016 |
+| P5 | `rules.max_loan_term_years` | 20 years | **Yes** | Fails 0% | Data maximum | D-016 |
+| P6 | `rules.max_emi_to_income` | 50% of monthly income | **No (advisory warning only)** | Would fail 47% of approved applicants, so enforcing it would contradict the data | Common FOIR-style cap; the real FOIR policy is needed | D-012, D-016 |
+
+Rule of thumb used for the enforce flags: a rule is enforced only if it fails fewer than 5% of the applicants who were approved in the data (milestone 1 review, decision 2). `min_cibil` always overrides the model (milestone 1 review, decision 3).
+
+### Other assumptions and placeholders
+
+| # | Setting / assumption | Current value | Notes | Ref |
+|---|---|---|---|---|
+| A1 | `emi.assumed_annual_interest_rate` | **10% a year** | The dataset has no interest rate or existing EMIs. Used only for the advisory EMI check. Needs the real product rates. | D-012, D-016 |
+| A2 | `model.approval_threshold` | 0.5 | A model score at or above this is Approved (when no enforced rule failed). | D-025 |
+| A3 | `model.borderline_band` | 40% to 60% | Model-score band flagged "manual review recommended" (only when no enforced rule failed). | D-025 |
+| A4 | `model.borderline_cibil_margin` | +/- 25 points around `min_cibil` | Also flagged borderline, unless another enforced rule failed. | D-033 |
+| A5 | `display.probability_bands` | 85 / 65 / 35 / 15% | Verbal labels only (Very likely to Very unlikely); stored scores unchanged. | D-032 |
+| A6 | `batch.max_rows` | 50,000 rows | Set from measured speed (50,000 rows scored in 16-32 s). | D-040, D-059 |
+| A7 | `storage.store_applicant_ids` | false | Only anonymised batch summaries are stored. | D-041 |
+| A8 | `cleaning.negative_assets_strategy` | clip_zero | The 28 rows with residential assets of -1,00,000 are treated as 0. | D-006 |
+| A9 | Manager password | env `LOANLENS_MANAGER_PASSWORD` or secret `manager_password`; local demo default `loanlens-demo` | Prototype gate, not authentication. | D-057 |
+| A10 | Model | Monotone-constrained, isotonic-calibrated XGBoost on CIBIL, loan term, loan-to-income, income, total assets | Trained on synthetic Kaggle data only; predicts the approval decision, not default. | D-019 to D-024 |
+| A11 | Feature importance measure | Mean absolute SHAP share (CIBIL 57%) | One measure everywhere. | D-045, D-058 |
+| A12 | Data licences | Not verified | The Kaggle CSVs are not committed; the source page of `loan_data.csv` was not recorded. | D-060 |
+
+### Known data quirks a lender's credit-policy team should be aware of
+
+- Approval in the primary data is almost a "CIBIL above 550" rule (D-009).
+- Low-CIBIL applicants with 2- or 4-year loans and a *higher* loan-to-income were approved: a synthetic artefact the model is constrained not to learn (D-011, D-021).
+- In the benchmark dataset, previous defaults dominate and credit score has no effect, and the label behaves partly like a default label (D-054, D-056).
+
+## Part 2: Full decision record
+
 Each entry records what was found, what was chosen, and why.
 
 ## Phase 0: Setup
@@ -327,6 +369,31 @@ Each entry records what was found, what was chosen, and why.
 - Ablations: credit score alone 0.501 (chance); removing it changes ROC-AUC from 0.978 to 0.977; removing previous defaults drops it to 0.935.
 - SHAP share: previous defaults 58%, income 8%, interest rate 8%, loan purpose 7%, home ownership 7%, loan-to-income 7%, credit score 3%.
 - **Conclusion:** each synthetic dataset is dominated by one rule-like field (CIBIL in the primary, previous defaults in the benchmark). A real system needs previous defaults, employment experience, home ownership, loan purpose, the offered rate and existing EMIs. Details in `reports/benchmark.md`; a short summary is on the About page.
+
+## Phase 10: Hardening and handover
+
+### D-057 Manager gate reads its password from the environment or secrets (review decision 3)
+- **Chose:** `src/loanlens/access.py` resolves the password from `LOANLENS_MANAGER_PASSWORD`, then the Streamlit secret `manager_password`, then the documented local-demo default `loanlens-demo` (the sidebar says when the demo default is in use). The comparison is constant-time (`hmac.compare_digest`). The page reads `st.secrets` only when a secrets file exists, because otherwise Streamlit shows its own "No secrets found" error box.
+- `.streamlit/secrets.toml` is gitignored; `.streamlit/config.toml` stays tracked. A search of the repository found no other password, token or key.
+- **Test change:** the three test helpers that switch on manager mode (`tests/test_batch.py`, `tests/test_pages.py`, `tests/test_theme.py`) now also type the demo password, one added line each. This is required by the new behaviour, not by styling. New tests cover wrong, missing, environment and secrets passwords.
+
+### D-058 One feature-importance measure (review decision 1)
+- **Chose:** mean absolute SHAP share is the only headline measure, on the Analytics page, the About page (through the model card) and in `reports/model_card.md` (new "Feature importance" table: CIBIL 57%, loan term 19%, total assets 12%, income 7%, loan-to-income 4%). The model card's old "74% of total gain" headline was replaced, with one sentence explaining why gain gives a different number. The modelling notebook still prints gain as analysis.
+
+### D-059 Hardening walk-through
+- **Checked headlessly (AppTest), with no exception and no stack trace in any element:**
+  - Customer page: zero income, zero loan, all-zero assets, maximum values in every box, CIBIL 300, CIBIL 540 (borderline flagged), CIBIL 560 with a 25-year term (correctly *not* borderline), 1-year term.
+  - Bulk Check: no file, empty file, header-only file, binary junk, missing columns, huge / negative / text values, **50,000 rows (scored through the page in 16 s)** and **51,000 rows** ("The file has 51,000 rows, but the maximum is 50,000 rows per file. Please split it into smaller files.").
+- **Coverage:** 98% of `src/loanlens` (`pytest --cov=loanlens`). New tests target the important gaps: the fallback reason that guarantees every rejection has a reason, the cp1252 CSV fallback, binary files, empty batches, CIBIL candidates near 900, non-finite display values, and the single-row "what would change" wrapper.
+- `pytest-cov` was added to `requirements.txt` (dev tooling) so coverage can be re-run.
+
+### D-060 Data files and licences (review decision 5)
+- **Found:** the Kaggle licences could not be verified from inside the project, and `data/processed/loan_approval_clean.csv` (a full cleaned copy of the primary dataset) had been committed in Phase 1.
+- **Chose:** all three raw CSVs stay gitignored. `data/processed/` is now gitignored too and the processed file was removed from the index (it remains in earlier commits; history was not rewritten). `python -m loanlens.model` rebuilds it automatically. README lists the sources and download links. The source page of the 381-row `loan_data.csv` was never recorded, so README describes it without inventing a link.
+- `tests/fixtures/batch_1000.csv` (980 sample rows plus 20 synthetic bad rows) is kept so the tests can run; remove it if the dataset licence turns out not to allow redistribution.
+
+### D-061 Fresh-clone setup
+- **Chose:** `requirements.txt` ends with `-e .`, so installing the requirements also installs the `loanlens` package (three commands: create the venv, install, run). `python -m loanlens.model` now builds the cleaned dataset first if it is missing, and stops with a clear message if `data/raw/loan_approval_dataset.csv` is absent. The package version is now 1.0.0.
 
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.

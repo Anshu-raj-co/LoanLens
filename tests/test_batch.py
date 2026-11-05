@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from loanlens import batch, storage
+from loanlens.access import DEMO_PASSWORD
 from loanlens.config import BatchConfig, StorageConfig, load_policy
 from loanlens.decision import decide
 from loanlens.schema import ValidationFailure, validate_applicant
@@ -321,6 +322,7 @@ def _bulk_page(app_path, monkeypatch, upload: bytes | None, tmp_path):
     at = AppTest.from_file(str(Path(app_path) / "pages" / "2_Bulk_Check.py"), default_timeout=120)
     at.run()
     at.toggle(key="manager_mode").set_value(True).run()
+    at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
     return at
 
 

@@ -205,3 +205,25 @@
 
 **Open issues**
 - The benchmark label's direction for interest rate and loan-to-income looks like a default label (D-054).
+
+## Phase 10: Hardening and handover (done)
+
+**What was done**
+- Review decision 1: mean absolute SHAP share is the single feature-importance measure on the Analytics page, About page and model card (new "Feature importance" table; the old "74% of gain" headline explained and retired).
+- Review decision 2: a plain-language "How the borderline flag works" section on the About page (built from `policy.yaml` values) and in USER_GUIDE.md, including why a near-minimum CIBIL is not flagged when another enforced rule failed.
+- Review decision 3: Bulk Check now needs a password from `LOANLENS_MANAGER_PASSWORD` or the Streamlit secret `manager_password`, with the documented local-demo default `loanlens-demo` (`src/loanlens/access.py`). `.streamlit/secrets.toml` is gitignored. No other secret exists in the repository.
+- Review decisions 4 and 5: `requirements.txt` installs the package (`-e .`); `python -m loanlens.model` builds the cleaned data and the model; the app shows a friendly message if the model is missing. The Kaggle CSVs and the processed copy are gitignored; README lists sources and links.
+- Hardening walk-through of every page with invalid, empty, zero, huge, borderline, 50,000-row and 51,000-row inputs: no exception or stack trace reaches the user.
+- README.md rewritten (purpose, framing, fresh-clone setup, data sources, pages with screenshots, decision logic, manager gate, structure, limitations, future work). New USER_GUIDE.md (customers and bank managers, CSV template and columns, borderline explanation).
+- `reports/decisions_log.md` now opens with a list, for a lender's credit-policy team to review, of every placeholder and assumption.
+- Screenshots retaken after the Phase 10 UI changes.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 281 passed; coverage of `src/loanlens` 98% (`pytest --cov=loanlens`).
+- `streamlit run app/Home.py`: all five pages return 200, no errors in the server log.
+- Fresh clone: see the entry below.
+
+**Open issues**
+- All policy thresholds, enforce flags and the assumed 10% interest rate are illustrative until replaced by a lender's real credit policy.
+- Dataset licences not verified; the source page of `loan_data.csv` was not recorded (D-060).

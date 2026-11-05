@@ -9,6 +9,7 @@ import pytest
 
 from loanlens import batch, charts, explain, storage
 from loanlens import model as model_mod
+from loanlens.access import DEMO_PASSWORD
 from loanlens.config import load_policy
 from loanlens.presentation import policy_table, thresholds_note
 
@@ -27,6 +28,7 @@ def _run(app_path: str, page: str, manager: bool = False):
     at = AppTest.from_file(str(Path(app_path) / page), default_timeout=120).run()
     if manager:
         at.toggle(key="manager_mode").set_value(True).run()
+        at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
     return at
 
 

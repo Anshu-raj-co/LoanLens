@@ -15,9 +15,22 @@ models/*
 
 # Raw data (large / third-party; never commit bank data)
 data/raw/*
+!data/raw/.gitkeep
+
+# Processed copy of the third-party dataset: rebuilt by `python -m loanlens.model`
+data/processed/*
+!data/processed/.gitkeep
+
+# Local fresh-clone simulation
+.fresh_clone_test/
 
 # Local databases
 *.db
 *.sqlite
 *.sqlite3
 *.egg-info/
+
+# Local secrets (manager password); never commit
+.streamlit/secrets.toml
+.coverage
+htmlcov/

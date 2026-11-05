@@ -331,6 +331,14 @@ def main() -> None:  # pragma: no cover - exercised via the CLI
     """Cross-validate the final configuration, train it on all data and save it."""
     from loanlens import cleaning
 
+    if not cleaning.PROCESSED_PATH.exists():
+        if not cleaning.RAW_PATH.exists():
+            raise SystemExit(
+                f"Missing {cleaning.RAW_PATH}. Download loan_approval_dataset.csv (see README.md, "
+                "'Data') into data/raw/ and run this command again."
+            )
+        cleaning.build_clean_dataset()
+        print(f"Built the cleaned dataset at {cleaning.PROCESSED_PATH}")
     df = pd.read_csv(cleaning.PROCESSED_PATH)
     frame = build_frame(df)
     est = calibrated(make_estimator(FINAL_KIND, FINAL_FEATURES, FINAL_MONOTONE), FINAL_CALIBRATION)

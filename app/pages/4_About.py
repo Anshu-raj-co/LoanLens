@@ -7,7 +7,12 @@ from ui_common import footer, get_policy, setup_page
 
 from loanlens import model as model_mod
 from loanlens.config import PROJECT_ROOT
-from loanlens.presentation import BENCHMARK_SUMMARY, policy_table, thresholds_note
+from loanlens.presentation import (
+    BENCHMARK_SUMMARY,
+    borderline_explainer,
+    policy_table,
+    thresholds_note,
+)
 
 MODEL_CARD = PROJECT_ROOT / "reports" / "model_card.md"
 
@@ -54,6 +59,10 @@ st.caption(
     "rules only add a warning. Every value is a placeholder, illustrative until replaced by a "
     "lender's real credit policy."
 )
+
+st.subheader("How the borderline flag works")
+with st.container(key="card_warning_borderline"):
+    st.markdown(borderline_explainer(policy))
 
 st.subheader("Benchmark")
 with st.container(key="card_primary_benchmark"):

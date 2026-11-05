@@ -240,7 +240,7 @@ def _tone_rules(prefix: str, tone: str) -> str:
     return (
         f'[class*="st-key-{prefix}"] {{ background: {BACKGROUND}; border: 1px solid {BORDER}; '
         f"border-left: 5px solid {colour}; border-radius: 12px; padding: 0.85rem 1.1rem; "
-        f"box-shadow: 0 1px 3px rgba(15, 27, 61, 0.06); }}\n"
+        f"box-sizing: border-box; box-shadow: 0 1px 3px rgba(15, 27, 61, 0.06); }}\n"
     )
 
 
@@ -357,7 +357,7 @@ a {{ color: {PRIMARY_INK}; }}
         # Keyed panels: st.container(key="panel_<tone>_...") -> tinted panel.
         parts.append(
             f'[class*="st-key-panel_{tone}"] {{ background: {tint}; border: 1px solid '
-            f"{colour}; border-radius: 12px; padding: 0.75rem 1rem; }}\n"
+            f"{colour}; border-radius: 12px; padding: 0.75rem 1rem; box-sizing: border-box; }}\n"
         )
     # Alerts inside a tinted panel blend into it.
     parts.append(
@@ -369,7 +369,7 @@ a {{ color: {PRIMARY_INK}; }}
         colour, tint, ink = _TONES[tone]
         parts.append(
             f'[class*="st-key-banner_{tone}"] {{ background: {tint}; border: 2px solid '
-            f"{colour}; border-radius: 16px; padding: 1.1rem 1.4rem; "
+            f"{colour}; border-radius: 16px; padding: 1.1rem 1.4rem; box-sizing: border-box; "
             f"box-shadow: 0 4px 16px rgba(15, 27, 61, 0.07); }}\n"
             f'[class*="st-key-banner_{tone}"] [data-testid="stAlertContainer"] {{ '
             f"background: transparent !important; border: none !important; padding: 0; }}\n"

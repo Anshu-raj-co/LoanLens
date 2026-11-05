@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -77,3 +78,18 @@ def friendly_failure(context: str) -> None:
         f"Sorry, something went wrong while {context}. Please check the inputs and try again. "
         "If the problem continues, contact the LoanLens administrator."
     )
+
+
+def streamlit_secrets() -> Any:
+    """``st.secrets`` if a secrets file exists, else None.
+
+    Reading ``st.secrets`` without a file makes Streamlit show its own error box, so the
+    usual locations are checked first.
+    """
+    project = Path(__file__).resolve().parents[1]
+    candidates = [
+        Path.home() / ".streamlit" / "secrets.toml",
+        Path.cwd() / ".streamlit" / "secrets.toml",
+        project / ".streamlit" / "secrets.toml",
+    ]
+    return st.secrets if any(c.exists() for c in candidates) else None

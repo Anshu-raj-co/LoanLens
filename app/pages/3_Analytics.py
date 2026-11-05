@@ -88,8 +88,10 @@ with tab_model:
         st.caption(
             f"Model v{artifact.get('version')} ({artifact.get('kind')}, "
             f"{artifact.get('calibration')} calibration). Share of each feature's average "
-            "influence on the model score. Policy rules are applied separately and are not "
-            "included here."
+            "influence on the model score (mean absolute SHAP share). This is the one measure "
+            "LoanLens uses for feature importance, here, on the About page and in the model "
+            "card. Loan term ranks second only because of a quirk in the synthetic data. "
+            "Policy rules are applied separately and are not included here."
         )
 
 with tab_batch:
