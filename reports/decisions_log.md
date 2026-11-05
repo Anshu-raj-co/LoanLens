@@ -101,6 +101,42 @@ Each entry records what was found, what was chosen, and why.
 ### D-018 Small supporting modules
 - **Chose:** `config.py` (typed policy loader, cached) and `formatting.py` (Indian digit grouping: 12,50,000). Neither is in the CLAUDE.md file list, but both are tiny and shared by rules, explanations and (later) the app. The CIBIL band definition moved into `features.py`, and `charts.py` imports it from there, so it is defined only once.
 
+## Phase 4: Modelling
+
+### D-019 Feature set
+- **Chose:** COMPACT = `cibil_score`, `loan_term`, `loan_to_income`, `income_annum`, `total_assets`.
+- **Why:** education, self-employment, dependents and the four separate asset columns add nothing. FULL vs COMPACT ROC-AUC for XGBoost is 0.9993 vs 0.9992. Raw `loan_amount` is excluded (D-021). Gender and marital status are blocked in `make_estimator`.
+- **Not used:** `emi_to_income`, because it depends on the placeholder interest rate.
+
+### D-020 Leakage and ablation results (XGBoost, COMPACT, unconstrained)
+- All features: ROC-AUC 0.9992. CIBIL only: 0.9603. Without CIBIL: 0.5837. Without loan_term: 0.9822. Without loan_to_income: 0.9948. Shuffled labels: 0.499.
+- **Verdict:** no leakage. No identifier or target-derived column is used, and there are no duplicate rows. The high scores come from the near-deterministic synthetic label. Suspicious behaviour found: the loan-to-income quirk (D-011).
+
+### D-021 Monotone constraints (review decision 4)
+- **Found:**
+  - A CIBIL-only constraint costs 0.06 ROC-AUC points, but it does **not** stop the quirk: a 25% bigger loan still raises approval for 66% of low-CIBIL short-term rows.
+  - Adding a loan-to-income non-increasing constraint while raw `loan_amount` is still a feature is **bypassed**: the probe rises for 85% of those rows, because the model rebuilds the ratio from `loan_amount` and income.
+  - Only removing raw `loan_amount` *and* constraining CIBIL (+) and loan-to-income (-) stops it (probe: 0% of rows rise).
+- **Cost:** 0.40 ROC-AUC points (0.9992 to 0.9952), under 1%. F1 against the raw labels falls 2.79 points (0.9957 to 0.9677), but the loss is entirely in CIBIL < 550 rows, which the enforced `min_cibil` rule rejects regardless. On rule-passing rows F1 is 0.9970 vs 0.9968, and for the full rule + model decision 0.9611 vs 0.9609, so effectively no cost.
+- **Chose:** use the constraints. The "less than 1%" test is applied to ROC-AUC, the primary threshold-free metric, and confirmed on the rule-gated and full-system F1.
+
+### D-022 Calibration
+- **Found (constrained XGBoost):**
+  - Uncalibrated: Brier 0.0275, log loss 0.0868.
+  - Sigmoid: Brier 0.0310, log loss 0.1143.
+  - Isotonic: Brier 0.0257, log loss 0.0803.
+- **Chose:** isotonic, which is best on both. `ensemble=False`, so there is one base model for SHAP.
+- **Side effect:** isotonic output is step-shaped, so probabilities in the 0.4 to 0.6 borderline band are rare.
+
+### D-023 Model choice
+- **Rule:** the simplest model within about 1% ROC-AUC of the best. Simplicity is measured by model size: logistic regression (6 parameters) < XGBoost (about 2,964 leaves) < random forest (about 30,491 leaves).
+- **Found:** logistic regression scores 0.9689, more than 1% behind the best, so it is out. Constrained isotonic XGBoost scores 0.9942 and constrained random forest 0.9942. XGBoost is within 0.51 points of the best unconstrained model (0.9993).
+- **Chose:** XGBoost, the smaller of the two that qualify. Its native, well-documented monotone constraints are a second reason.
+- **Final CV metrics:** ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546.
+
+### D-024 Model artifact
+- **Chose:** a joblib dict (model, features, version 1.0.0, monotone constraints, training ranges, medians of approved applicants used as benchmarks, CV metrics) plus a JSON sidecar. `models/` stays gitignored, so `python -m loanlens.model` rebuilds it. The test fixture trains it automatically if it is missing.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.

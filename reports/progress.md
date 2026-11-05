@@ -78,3 +78,19 @@
 
 **Open issues**
 - All thresholds and enforce flags are placeholders. The EMI-to-income rule is advisory until a lender supplies its real interest rate and FOIR policy.
+
+## Phase 4: Modelling (done)
+
+**What was done**
+- `src/loanlens/model.py`: Pipelines (ColumnTransformer + scaler/one-hot fitted inside each fold), logistic regression / random forest / XGBoost, stratified 5-fold `cross_validate` with out-of-fold confusion matrices, calibration, a loan-size monotonicity probe, `train_final`, and save/load of an artifact with features, version, ranges and benchmarks. CLI: `python -m loanlens.model`.
+- `notebooks/03_modelling.ipynb`: model comparison on three feature sets, ablations (CIBIL only, without CIBIL, without term, without loan-to-income), a shuffled-label check, monotone-constraint experiments with the quirk probe, calibration comparison and curve, the selection rule, and final training.
+- Final model: constrained XGBoost (CIBIL +, loan-to-income -), isotonic calibration, COMPACT features. CV ROC-AUC 0.9942, PR-AUC 0.9946, F1 0.9639.
+- `reports/model_card.md`.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 106 passed (new `test_model.py`, including protected-attribute blocking, determinism, a save/load round trip, and checks that a bigger loan never raises and a higher CIBIL never lowers approval in the saved model).
+
+**Open issues**
+- The constrained model disagrees with the quirky historical labels by design (D-021).
+- Isotonic calibration makes borderline cases rare (D-022).
