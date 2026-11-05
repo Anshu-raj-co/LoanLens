@@ -344,14 +344,14 @@ def test_bulk_page_with_fixture(app_path, monkeypatch, tmp_path, fixture_bytes, 
     assert not at.exception
 
 
-def test_bulk_page_missing_columns(app_path, monkeypatch, tmp_path) -> None:
+def test_bulk_page_missing_columns(app_path, monkeypatch, tmp_path, artifact) -> None:
     frame = pd.read_csv(io.BytesIO(batch.template_csv())).drop(columns=["loan_term"])
     at = _bulk_page(app_path, monkeypatch, csv_bytes(frame), tmp_path)
     assert not at.exception
     assert any("Required columns are missing: loan_term" in e.value for e in at.error)
 
 
-def test_bulk_page_empty_file(app_path, monkeypatch, tmp_path) -> None:
+def test_bulk_page_empty_file(app_path, monkeypatch, tmp_path, artifact) -> None:
     at = _bulk_page(app_path, monkeypatch, b" ", tmp_path)
     assert not at.exception
     assert any("empty" in e.value for e in at.error)

@@ -68,7 +68,7 @@ def _bulk(app_path, monkeypatch, tmp_path, password: str | None):
     return at
 
 
-def test_bulk_page_needs_password(app_path, monkeypatch, tmp_path) -> None:
+def test_bulk_page_needs_password(app_path, monkeypatch, tmp_path, artifact) -> None:
     at = _bulk(app_path, monkeypatch, tmp_path, None)
     assert not at.exception
     assert any("Enter the manager password" in i.value for i in at.info)
@@ -81,7 +81,7 @@ def test_bulk_page_needs_password(app_path, monkeypatch, tmp_path) -> None:
     assert any("demo password" in c.value for c in at.sidebar.caption)
 
 
-def test_bulk_page_uses_env_password(app_path, monkeypatch, tmp_path) -> None:
+def test_bulk_page_uses_env_password(app_path, monkeypatch, tmp_path, artifact) -> None:
     import streamlit as st
     from streamlit.testing.v1 import AppTest
 

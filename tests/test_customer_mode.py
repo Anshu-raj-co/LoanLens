@@ -30,7 +30,7 @@ def test_form_collects_exactly_the_model_fields() -> None:
         assert f.help.strip()
 
 
-def test_form_defaults_are_valid() -> None:
+def test_form_defaults_are_valid(artifact) -> None:
     assert isinstance(decide(form_defaults()), DecisionResult)
 
 
