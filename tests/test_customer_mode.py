@@ -69,6 +69,8 @@ def test_invalid_input_is_friendly() -> None:
 def test_thresholds_note_mentions_placeholders() -> None:
     note = thresholds_note(POLICY)
     assert "illustrative placeholders" in note and "550" in note and "10%" in note
+    assert "lender's real credit policy" in note
+    assert "bank" not in note.lower() and "india" not in note.lower()  # names no institution
 
 
 def test_customer_page_does_not_store_data(app_path) -> None:

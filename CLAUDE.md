@@ -53,7 +53,7 @@ For every application, in order:
 1. **Validate** input (Pydantic). Invalid input returns a clear error and no decision.
 2. **Policy rules** from `config/policy.yaml`. Any hard-rule failure means **Rejected**, with that rule as the reason. Rules: `min_cibil`, `max_emi_to_income`, `max_loan_to_income`, `max_loan_to_assets`, min and max loan term.
    - EMI uses the standard formula with an **assumed annual interest rate** from config (placeholder, because the dataset has no rate).
-   - Thresholds are placeholders until replaced by a lender's real credit policy. Mark them clearly in the config file.
+   - Thresholds are placeholders, illustrative until replaced by a lender's real credit policy. Mark them clearly in the config file.
 3. **Model**: calibrated probability `p`. If `p >= approval_threshold` (default 0.5) then Approved, else Rejected.
 4. **Borderline flag**: if `p` is within the configured band (default 0.4 to 0.6), set `borderline=True` ("manual review recommended"). The status is still Approved or Rejected.
 5. **Reasons** (see section 6).

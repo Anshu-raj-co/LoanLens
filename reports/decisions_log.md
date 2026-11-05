@@ -395,6 +395,17 @@ Each entry records what was found, what was chosen, and why.
 ### D-061 Fresh-clone setup
 - **Chose:** `requirements.txt` ends with `-e .`, so installing the requirements also installs the `loanlens` package (three commands: create the venv, install, run). `python -m loanlens.model` now builds the cleaned dataset first if it is missing, and stops with a clear message if `data/raw/loan_approval_dataset.csv` is absent. The package version is now 1.0.0.
 
+## State on resume (before the reframe and publication)
+
+- **Found:** working tree clean on `master`, last commit `c73df48` ("Phase 10: fresh-clone verification recorded"), tag `v1.0` on it, no remote. The fresh-clone verification had in fact been recorded in `progress.md`. No leftover `.fresh_clone_test/` folder and no `big_50k.csv` / `big_51k.csv` (or any file over 5 MB outside `.venv`) remained. Baseline: `ruff check .` passed, `pytest` 281 passed.
+- **Kept:** everything. **Discarded:** nothing.
+
+## Reframe and publication
+
+### D-062 Reframed as an independent proof of concept
+- **Found:** 56 occurrences of the former affiliation / reviewer wording across 16 files (22 in `config/policy.yaml` comments; the rest in CLAUDE.md, README, USER_GUIDE, two app pages, `presentation.py` and `rules.py` user-facing text, notebook 02 and 04 markdown cells, and five reports).
+- **Chose:** LoanLens is an independent proof of concept by Anshu Raj, to be pitched to lenders, with no bank affiliation or endorsement. Every placeholder note now reads "PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy" or "illustrative until replaced by a lender's real credit policy"; review notes are "for a lender's credit-policy team to review". `reports/rules_vs_labels.md` was regenerated from `rules.py` and matches. No test asserted the old wording; `test_thresholds_note_mentions_placeholders` now also checks the new wording and that no bank is named. Behaviour is unchanged.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
