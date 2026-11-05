@@ -35,9 +35,10 @@ Known facts about the primary dataset (verified):
 - Columns: `loan_id, no_of_dependents, education, self_employed, income_annum, loan_amount, loan_term (years), cibil_score, residential_assets_value, commercial_assets_value, luxury_assets_value, bank_asset_value, loan_status`.
 - Target: `loan_status` (Approved=1, Rejected=0). About 62% approved.
 - 28 rows have negative `residential_assets_value`. Treat as data errors and document the handling.
-- **CIBIL dominates**: approval is about 99% above 550 and about 10% at or below 550. A CIBIL-only tree gets about 95% accuracy and a random forest about 99.9%.
+- **CIBIL dominates**: approval is about 99% above 550 and about 10% at or below 550. A CIBIL-only tree gets about 95% accuracy. A random forest gets about 98.2% on the raw features and about 99.6% once loan-to-income is added (5-fold CV; corrected from an earlier 99.9% claim, see decisions_log D-010).
 - Education, self-employed and dependents show **no effect** on approval.
 - Almost all low-CIBIL approvals have loan_term of 2 or 4 years, a quirk of the synthetic data. Document it. Do not present it as real policy.
+- Second quirk: among low-CIBIL (<= 550) applicants with 2 or 4 year loans, approval *rises* with loan-to-income (none approved at or below 2.5, 96-100% approved above 3.0). This is a synthetic artefact, the opposite of sound lending logic. Never present it as advice (see decisions_log D-011).
 - Loan-to-income only ranges 1.5 to 4.0, so predictions outside the training range are unreliable. Warn the user.
 - **Never use gender or marital status** as model features.
 

@@ -61,3 +61,20 @@
 - Random forest accuracy is 98.2% on raw features, not the 99.9% in CLAUDE.md. It reaches 99.6% with loan-to-income (D-010).
 - In the low-CIBIL, short-term group, approval rises with loan-to-income, a synthetic artefact (D-011). The later "what would change" logic must guard against it.
 - The EMI-to-income cap of 0.50 would flag 44% of rows, and those rows are approved more often, not less (D-012). Needs a decision before `rules.py`.
+
+## Phase 3: Features and rules (done)
+
+**What was done**
+- `CLAUDE.md` section 3 is updated with the corrected random-forest figure and the loan-to-income quirk.
+- `config/policy.yaml` gives each rule a `value` and an `enforce` flag (all PLACEHOLDER). `src/loanlens/config.py` loads and validates it.
+- `src/loanlens/features.py`: `emi` (reducing balance, rate from config), `emi_to_income`, `loan_to_income`, `total_assets`, `loan_to_assets`, `cibil_band`, `add_features`. Zero income, zero assets and a zero term are handled without errors.
+- `src/loanlens/rules.py`: one `check_*` function per rule, each returning a `RuleResult` (rule, passed, actual, threshold, enforce, message). Also `evaluate_rules`, `enforced_failures` / `advisory_failures`, the vectorised `rule_pass_frame`, and `summarise_against_labels`.
+- `reports/rules_vs_labels.md` (from `python -m loanlens.rules`): `min_cibil` fails 7.0% of approved applicants (enforced); EMI-to-income fails 47.4% (advisory); loan-to-income, loan-to-assets and the term limits fail 0% (enforced). It also has an EMI-cap sensitivity table.
+- `src/loanlens/formatting.py`: Indian digit grouping.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 92 passed (new: test_features, test_rules, test_config, covering zero income, zero assets, zero term, extreme amounts and values exactly at each threshold).
+
+**Open issues**
+- All thresholds and enforce flags are placeholders. The EMI-to-income rule is advisory until a lender supplies its real interest rate and FOIR policy.

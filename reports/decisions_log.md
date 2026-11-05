@@ -80,6 +80,27 @@ Each entry records what was found, what was chosen, and why.
 ### D-014 Notebook rendering
 - **Chose:** Plotly renderer `plotly_mimetype+notebook_connected`. plotly.js loads from a CDN instead of being embedded, which keeps `02_eda.ipynb` at about 0.8 MB.
 
+### D-015 CLAUDE.md section 3 updated (milestone 1 review, decision 1)
+- **Chose:** the random-forest figure is corrected to 98.2% on raw features and 99.6% with loan-to-income, and the loan-to-income quirk (D-011) is added as a second documented quirk.
+
+## Phase 3: Features and rules
+
+### D-016 Policy file restructured with an `enforce` flag per rule (review decision 2)
+- **Chose:** each rule is now `{value, enforce}`, validated by `src/loanlens/config.py` (Pydantic). Both values and flags are marked PLACEHOLDER. `min_cibil` stays at 550.
+- **Numbers behind each ratio-rule choice** (full table in `reports/rules_vs_labels.md`):
+  - `max_emi_to_income` (0.50 at 10% interest): fails **1,260 of 2,656 approved (47.4%)**, so enforce = **false** (advisory warning only).
+  - `max_loan_to_income` (4.0): fails **0 approved (0.0%)**, so enforce = **true**.
+  - `max_loan_to_assets` (1.5): fails **0 approved (0.0%)**, so enforce = **true**.
+- `min_cibil` and both loan-term limits are enforced by decision. Note that `min_cibil` 550 rejects **185 applicants (7.0%) who were approved in the data**, all low-CIBIL short-term approvals from the synthetic quirk. That is intended: the hard rule overrides those quirky labels.
+- A test (`test_config_enforce_matches_five_percent_criterion`) fails if the data and the config flags ever disagree.
+
+### D-017 Rule semantics
+- **Chose:** a value exactly at a threshold **passes** (CIBIL >= 550, ratios <= cap, term within [2, 20]). Ratios are rounded to 9 decimals before comparison to avoid float noise. A value that cannot be computed (NaN, e.g. EMI with a term of 0) **fails**.
+- **Edge cases:** zero income gives an infinite loan-to-income and EMI-to-income, so those rules fail. Zero assets gives an infinite loan-to-assets, so that rule fails. The messages say "No annual income was given" or "No assets were declared" instead of printing "inf".
+
+### D-018 Small supporting modules
+- **Chose:** `config.py` (typed policy loader, cached) and `formatting.py` (Indian digit grouping: 12,50,000). Neither is in the CLAUDE.md file list, but both are tiny and shared by rules, explanations and (later) the app. The CIBIL band definition moved into `features.py`, and `charts.py` imports it from there, so it is defined only once.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.

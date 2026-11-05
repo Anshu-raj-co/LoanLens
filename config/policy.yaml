@@ -2,14 +2,32 @@
 # Single source of truth for every threshold used by the decision logic.
 # All values below are PLACEHOLDERS: illustrative values only. A lender would
 # replace them with its own credit policy. Do not treat them as real lending policy.
+#
+# Each rule has:
+#   value:   the threshold
+#   enforce: true  -> a failed rule makes the decision Rejected, with that rule as the reason
+#            false -> advisory only: a failed rule is shown as a warning, status unchanged
+# The enforce choices for the three ratio rules are backed by reports/rules_vs_labels.md.
 
 rules:
-  min_cibil: 550              # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-  max_emi_to_income: 0.50     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (monthly EMI / monthly income)
-  max_loan_to_income: 4.0     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (loan amount / annual income)
-  max_loan_to_assets: 1.5     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (loan amount / total assets)
-  min_loan_term_years: 2      # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-  max_loan_term_years: 20     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  min_cibil:                  # pass if cibil_score >= value
+    value: 550                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_emi_to_income:          # pass if monthly EMI / monthly income <= value
+    value: 0.50               # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: false            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (fails 47% of approved applicants, see rules_vs_labels.md)
+  max_loan_to_income:         # pass if loan amount / annual income <= value
+    value: 4.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_to_assets:         # pass if loan amount / total assets <= value
+    value: 1.5                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  min_loan_term_years:        # pass if loan_term >= value
+    value: 2                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_term_years:        # pass if loan_term <= value
+    value: 20                 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
 
 emi:
   assumed_annual_interest_rate: 0.10  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (dataset has no rate)

@@ -12,20 +12,24 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from loanlens.features import CIBIL_EDGES, CIBIL_LABELS, cibil_band
+
+__all__ = [
+    "CIBIL_EDGES",
+    "CIBIL_LABELS",
+    "approval_by_cibil_band",
+    "approval_by_quantile_band",
+    "approval_heatmap",
+    "approval_rate_bar",
+    "approval_rate_table",
+    "cibil_band",
+    "distribution_by_status",
+]
+
 TARGET = "loan_status"
 APPROVED_COLOUR = "#2a9d8f"
 REJECTED_COLOUR = "#e76f51"
 STATUS_COLOURS = {"Approved": APPROVED_COLOUR, "Rejected": REJECTED_COLOUR}
-
-CIBIL_EDGES: tuple[int, ...] = (300, 450, 550, 650, 750, 900)
-CIBIL_LABELS: tuple[str, ...] = ("300-450", "451-550", "551-650", "651-750", "751-900")
-
-
-def cibil_band(scores: pd.Series) -> pd.Series:
-    """Bucket CIBIL scores into fixed bands. 550 falls in the ``451-550`` band."""
-    return pd.cut(
-        scores, bins=list(CIBIL_EDGES), labels=list(CIBIL_LABELS), include_lowest=True
-    )
 
 
 def approval_rate_table(df: pd.DataFrame, by: str | pd.Series) -> pd.DataFrame:
