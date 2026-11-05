@@ -44,3 +44,20 @@
 
 **Open issues**
 - None for cleaning. The CSV-upload column mapping (Bulk Check) will reuse `normalise_column_name` in a later phase.
+
+## Phase 2: EDA (done)
+
+**What was done**
+- `notebooks/02_eda.ipynb` charts approval rate (Plotly) by CIBIL band, CIBIL x loan term, loan term, loan-to-income, income, loan amount, each asset type and total assets, education, self-employment and dependents. It adds chi-square tests and correlations.
+- Every CLAUDE.md section 3 claim is checked against printed numbers, with a summary table in notebook section 9.8. The table is in `decisions_log.md` D-009.
+- A plain-language "Findings and data limitations" cell.
+- `src/loanlens/charts.py`: 5 reusable chart functions (`approval_rate_bar`, `approval_by_cibil_band`, `approval_by_quantile_band`, `distribution_by_status`, `approval_heatmap`) plus helpers `cibil_band` and `approval_rate_table`. Tests are in `tests/test_charts.py`.
+
+**Test results**
+- `ruff check .`: all checks passed (including both notebooks).
+- `pytest`: 33 passed (24 cleaning, 9 charts).
+
+**Open issues**
+- Random forest accuracy is 98.2% on raw features, not the 99.9% in CLAUDE.md. It reaches 99.6% with loan-to-income (D-010).
+- In the low-CIBIL, short-term group, approval rises with loan-to-income, a synthetic artefact (D-011). The later "what would change" logic must guard against it.
+- The EMI-to-income cap of 0.50 would flag 44% of rows, and those rows are approved more often, not less (D-012). Needs a decision before `rules.py`.

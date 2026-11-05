@@ -42,3 +42,45 @@ Each entry records what was found, what was chosen, and why.
 - **Chose:** strip, lower-case, drop bracketed units (`loan_term (years)` becomes `loan_term`), and replace non-alphanumeric runs with `_`. Collisions raise an error.
 - **Why:** this matches the CLAUDE.md column list. The raw header is actually `loan_term`, with no "(years)", but the function handles both forms. The same rule will be reused for uploaded CSVs.
 
+
+## Phase 2: EDA
+
+### D-009 Checking the CLAUDE.md section 3 claims (numbers from `02_eda.ipynb`)
+| Claim | Actual | Verdict |
+|---|---|---|
+| About 62% approved | 62.2% (2,656 of 4,269) | Confirmed |
+| About 99% approved above CIBIL 550 | 99.5% (2,467 of 2,480) | Confirmed |
+| About 10% approved at or below 550 | 10.6% (189 of 1,789) | Confirmed |
+| CIBIL-only tree about 95% accuracy | 95.4% (depth-1 stump, 5-fold CV; split learned at 549.5) | Confirmed |
+| Random forest about 99.9% accuracy | **98.2%** on raw features; **99.6%** once loan-to-income is added (5-fold CV) | **Corrected**, see D-010 |
+| Education, self-employment, dependents have no effect | Spreads of 0.5, 0.03 and 3.9 points; chi-square p = 0.77, 1.00, 0.78 | Confirmed |
+| Low-CIBIL approvals are almost all 2 or 4 year terms | 186 of 189 (98.4%) | Confirmed |
+| Loan-to-income ranges 1.5 to 4.0 | 1.50 to 4.00 | Confirmed |
+| No gender or marital status used | The primary dataset has no such columns | Confirmed |
+
+### D-010 Random forest accuracy is not 99.9% on raw features
+- **Found:** a 300-tree random forest gets 98.22% mean accuracy over stratified 5-fold CV on the raw cleaned features. Single 80/20 splits range from 97.4% to 99.2%. Adding the derived loan-to-income ratio gives 99.63%. CIBIL, term and loan-to-income alone give 99.60%.
+- **Chose:** the corrected fact is "about 98% on raw features, about 99.6% with loan-to-income". The 99.9% figure is not used anywhere.
+- **Why:** these are the numbers the code actually produces. The ratio matters because trees struggle to rebuild a ratio from two raw columns.
+
+### D-011 New quirk: inside the low-CIBIL, short-term group, a higher loan-to-income ratio means approval
+- **Found:** for CIBIL at or below 550 with a 2 or 4 year term, approval is 0% when loan-to-income is at or below 2.5, 8 to 13% from 2.5 to 3.0, and 96 to 100% above 3.0. The 13 rejections above CIBIL 550 also have high loan-to-income (median 3.78 vs 3.00 overall).
+- **Chose:** documented as a synthetic-data artefact in the notebook's findings. It is not presented as policy.
+- **Why it matters later:** the "what would change" search in a later phase could suggest "borrow more" or "take a shorter loan", which would be harmful advice. Logged for the modelling and explainability phases (see Suggestions).
+
+### D-012 The EMI-to-income placeholder conflicts with the data (open issue for the rules phase)
+- **Found:** at the assumed 10% rate, EMI-to-income exceeds 0.50 for 1,877 of 4,269 rows (44%). Those rows are approved *more* often (67.1% vs 58.4%), because short terms produce very large EMIs on loans of 1.5 to 4 times annual income.
+- **Chose:** the placeholder stays at 0.50, because it sits within the typical Indian FOIR range, and the config already marks it as a placeholder. Nothing was changed in this phase.
+- **Why:** rules are a later phase. Decide there with a lender's credit-policy team whether to relax the cap, compute it differently, or accept that the hard rule will override the model for these rows.
+
+### D-013 Charts module
+- **Chose:** `src/loanlens/charts.py` contains `cibil_band`, `approval_rate_table` (data helper), `approval_rate_bar`, `approval_by_cibil_band`, `approval_by_quantile_band`, `distribution_by_status` and `approval_heatmap`. That is 5 chart functions plus 2 helpers. The CIBIL band edges are 300/450/550/650/750/900, so 550 falls in the lower band, matching the "at or below 550" claim.
+- **Why:** these are generic, data-in and figure-out functions with no Streamlit dependency, so the Analytics page can reuse them. Derived ratios are computed inside the notebook for now, because `features.py` belongs to a later phase.
+
+### D-014 Notebook rendering
+- **Chose:** Plotly renderer `plotly_mimetype+notebook_connected`. plotly.js loads from a CDN instead of being embedded, which keeps `02_eda.ipynb` at about 0.8 MB.
+
+## Suggestions
+- In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
+- In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
+- Settle the EMI-to-income cap (D-012) with a lender's credit-policy team before building `rules.py`.
