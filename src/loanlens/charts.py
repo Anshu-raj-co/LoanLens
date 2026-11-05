@@ -23,7 +23,9 @@ __all__ = [
     "approval_rate_bar",
     "approval_rate_table",
     "cibil_band",
+    "counts_bar",
     "distribution_by_status",
+    "feature_importance_bar",
 ]
 
 TARGET = "loan_status"
@@ -177,4 +179,42 @@ def approval_heatmap(
         xaxis_type="category",
         yaxis_type="category",
     )
+    return fig
+
+
+def feature_importance_bar(
+    importance: pd.Series, title: str = "What drives the model"
+) -> go.Figure:
+    """Horizontal bar of feature importance shares (index = readable feature names)."""
+    data = importance.sort_values()
+    fig = px.bar(
+        x=data.values,
+        y=data.index,
+        orientation="h",
+        text=[f"{v:.0%}" for v in data.values],
+        title=title,
+        color_discrete_sequence=[APPROVED_COLOUR],
+    )
+    fig.update_layout(
+        xaxis_title="Share of total influence", yaxis_title="", xaxis_tickformat=".0%"
+    )
+    fig.update_traces(textposition="outside")
+    return fig
+
+
+def counts_bar(
+    counts: dict[str, int] | pd.Series, title: str, x_label: str, horizontal: bool = False
+) -> go.Figure:
+    """Simple bar chart of named counts (e.g. top rejection reasons of a batch)."""
+    series = pd.Series(counts, dtype="int64")
+    if horizontal:
+        series = series.sort_values()
+        fig = px.bar(x=series.values, y=series.index, orientation="h", text=series.values,
+                     title=title, color_discrete_sequence=[REJECTED_COLOUR])  # fmt: skip
+        fig.update_layout(xaxis_title="Applicants", yaxis_title=x_label)
+    else:
+        fig = px.bar(x=series.index, y=series.values, text=series.values, title=title,
+                     color_discrete_sequence=[APPROVED_COLOUR])  # fmt: skip
+        fig.update_layout(xaxis_title=x_label, yaxis_title="Applicants", xaxis_type="category")
+    fig.update_traces(textposition="outside")
     return fig

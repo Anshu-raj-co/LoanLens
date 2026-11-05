@@ -36,6 +36,8 @@ streamlit run app/Home.py
 
 - **Check My Eligibility**: customer form with an instant, explained result. Nothing is stored.
 - **Bulk Check**: turn on *Bank manager mode* in the sidebar, download the CSV template, and upload up to **50,000 rows** per file (measured: about 0.7 s per 1,000 rows, about 32 s for 50,000). Invalid rows are listed and skipped. Results can be filtered and downloaded. Only anonymised batch summaries are saved, to `data/loanlens.sqlite`.
+- **Analytics**: approval by CIBIL band, loan term and loan size in the training data, what drives the model, and the latest batch summary.
+- **About**: the "approval, not default" framing, data source, metrics, current policy settings and the model card (`reports/model_card.md`).
 
 All policy thresholds in `config/policy.yaml` are illustrative placeholders illustrative until replaced by a lender's real credit policy.
 

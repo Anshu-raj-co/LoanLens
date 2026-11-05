@@ -140,6 +140,31 @@ def shap_contributions(artifact: dict[str, Any], frame: pd.DataFrame) -> pd.Data
     return pd.DataFrame(np.asarray(values), columns=X.columns, index=frame.index)
 
 
+FEATURE_LABELS: dict[str, str] = {
+    "cibil_score": "CIBIL score",
+    "loan_term": "Loan term",
+    "loan_to_income": "Loan-to-income ratio",
+    "income_annum": "Annual income",
+    "total_assets": "Total assets",
+}
+
+
+def feature_importance(artifact: dict[str, Any], frame: pd.DataFrame) -> pd.Series:
+    """Mean absolute SHAP value per model feature, as a share of the total.
+
+    Args:
+        artifact: trained model artifact.
+        frame: applicants with derived features (e.g. the training data).
+
+    Returns:
+        Shares summing to 1, indexed by readable feature names, largest first.
+    """
+    mean_abs = shap_contributions(artifact, frame).abs().mean()
+    share = (mean_abs / mean_abs.sum()).sort_values(ascending=False)
+    share.index = [FEATURE_LABELS.get(str(c), str(c)) for c in share.index]
+    return share
+
+
 def _worse_than_benchmark(direction: int, value: float, bench: float) -> bool:
     return direction == 0 or (value < bench if direction > 0 else value > bench)
 

@@ -249,6 +249,34 @@ Each entry records what was found, what was chosen, and why.
 - **Found:** Streamlit 1.40's AppTest cannot drive `st.file_uploader`.
 - **Chose:** the page tests replace `st.file_uploader` with a stub (monkeypatch) and point storage at a temporary file. The post-upload path (summary, filters, saving) is then exercised headlessly.
 
+## Phase 8: Analytics and About pages
+
+### D-045 Feature importance on the Analytics page
+- **Chose:** mean absolute SHAP share on the training data (`explain.feature_importance`):
+  - CIBIL 57%
+  - loan term 19%
+  - total assets 12%
+  - income 7%
+  - loan-to-income 4%
+- **Why it differs from the model card:** the model card's "CIBIL is 74% of total gain" is XGBoost's split-gain measure. Both are correct, and the page labels its measure.
+- The loan term's large share comes from the synthetic short-term quirk, and the page says so. It is cached per model version with `st.cache_data`, and the training data is cached too.
+
+### D-046 Charts reused and added
+- **Chose:** the Analytics page uses the Phase 2 functions `approval_by_cibil_band`, `approval_rate_bar` (loan term) and `approval_by_quantile_band` (loan size). Two small generic functions were added to `charts.py`: `feature_importance_bar` and `counts_bar` (latest batch: top rejection reasons and likelihood bands).
+
+### D-047 About page
+- **Chose:** the About page shows:
+  - the "approval, not default" framing first
+  - data source and model metadata (version, training date, CV metrics, read from the artifact)
+  - the illustrative-placeholders notice
+  - a table of every current `policy.yaml` value with its enforce setting (review decision 5)
+  - `reports/model_card.md`, rendered as is
+  - future work (real authentication, real data)
+- The model card now also describes the CIBIL-margin borderline rule and the likelihood bands.
+
+### D-048 Consistent look
+- **Chose:** every page calls `ui_common.setup_page` (page config, sidebar branding, prototype notice, title) and ends with `ui_common.footer()` (disclaimer). A test checks the footer and title on all five pages. Navigation is Streamlit's multipage sidebar, plus links on Home.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.

@@ -150,3 +150,23 @@
 
 **Open issues**
 - None.
+
+## Phase 8: Analytics and About pages (done)
+
+**What was done**
+- `app/pages/3_Analytics.py`, in three tabs:
+  - Approval patterns: CIBIL band, loan term, loan size, with plain-language captions about the synthetic quirks.
+  - What drives the model: mean |SHAP| feature importance.
+  - Latest batch: metrics, top rejection reasons, likelihood bands and a recent-batches table, all from SQLite.
+  - Data and importance are cached.
+- `app/pages/4_About.py`: approval-not-default framing, data source, model metadata and CV metrics, illustrative-thresholds notice, current policy table with enforce settings, the rendered model card, and future work.
+- `charts.py`: `feature_importance_bar`, `counts_bar`. `explain.py`: `feature_importance`.
+- The model card is updated with the borderline and likelihood-band display rules.
+
+**Test results**
+- `ruff check .`: all checks passed.
+- `pytest`: 238 passed. New `test_pages.py`: every page renders with title and footer; the placeholder notice appears on the customer, bulk and About pages; the model-missing message is friendly; Analytics works with and without stored batches; feature importance; About content and policy table.
+- `streamlit run app/Home.py`: health ok, all five page URLs return 200, no errors in the server log.
+
+**Open issues**
+- None.

@@ -27,6 +27,10 @@ All numbers below come from `notebooks/03_modelling.ipynb` (stratified 5-fold cr
 
 The model is one step in `decision.py`: input validation, then the policy rules (`config/policy.yaml`), then the model, then the borderline flag. **An enforced rule failure (for example CIBIL below 550) always means Rejected, whatever the model says.** All policy thresholds are placeholders, illustrative until replaced by a lender's real credit policy.
 
+A result is flagged **borderline (manual review recommended)** in two cases. The first is when no enforced rule failed and the probability is between 40% and 60%. The second is when the CIBIL score is within 25 points of the enforced minimum, on either side. The status is still Approved or Rejected.
+
+The score is shown as a percentage that never reads 0% or 100% (">99%" / "<1%"), together with a verbal band: Very likely (85% or more), Likely (65 to 85%), Borderline (35 to 65%), Unlikely (15 to 35%), or Very unlikely (under 15%). It is labelled "model score on synthetic data - indicative only". Stored probabilities are unchanged.
+
 ## Data
 
 - **Source:** `loan_approval_dataset.csv`, a public synthetic dataset from Kaggle. 4,269 applicants, amounts in INR, CIBIL 300 to 900, 62.2% approved.
@@ -114,4 +118,4 @@ The calibration curve is in the notebook. Isotonic calibration is step-shaped, s
 
 - Assumed annual interest rate of 10% for EMI (placeholder).
 - Every policy threshold and enforce flag in `config/policy.yaml` is a placeholder, illustrative until replaced by a lender's real credit policy.
-- Approval threshold 0.5; borderline band 0.4 to 0.6 (placeholders).
+- Approval threshold 0.5; borderline band 0.4 to 0.6; borderline CIBIL margin of +/- 25 points; likelihood band cut-offs 85 / 65 / 35 / 15% (all placeholders).
