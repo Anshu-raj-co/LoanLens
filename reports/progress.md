@@ -232,3 +232,22 @@
 - `git clone` into an empty, gitignored folder inside the project (`.fresh_clone_test/`, deleted afterwards), then `py -3.11 -m venv .venv` and `pip install -r requirements.txt`: 5.5 minutes, no errors. `loanlens` was importable from the clone's `src/` with no extra step.
 - **Before any data:** `python -m loanlens.model` stopped with "Missing ...loan_approval_dataset.csv. Download ... into data/raw/". The eligibility and Analytics pages showed the friendly "model has not been trained yet ... run `python -m loanlens.model`" message, with no exception. `pytest`: 184 passed, 97 skipped (data and model needed), 0 failed, after five tests were fixed to request the model fixture (they had failed instead of skipping).
 - **After copying the three CSVs into `data/raw/`:** `python -m loanlens.model` built the cleaned data and the model in 7 seconds, with the same CV metrics as the model card (ROC-AUC 0.9942, F1 0.9639). `streamlit run app/Home.py`: health ok, all five pages returned 200, every page was driven in headless Edge (including a 1,000-row upload with the demo password), and the server log had no errors. `pytest`: 281 passed.
+
+## Reframe and publication (done)
+
+**What was done**
+- Reframed as an independent proof of concept: 56 replacements across 16 files; no mention of the former affiliation or reviewer remains in files or history (D-062).
+- Dataset credits re-checked against Kaggle metadata; `bank_loan_data.csv` now cited as https://www.kaggle.com/datasets/udaymalviya/bank-loan-data; `loan_data.csv` marked "source not verified" (D-063).
+- `tests/fixtures/batch_1000.csv` replaced by a fully synthetic file from `scripts/make_batch_fixture.py` (D-064).
+- Screenshots retaken with Playwright (Chromium inside the venv; `requirements-dev.txt`), including a new `08_eligibility_rejected.png` (D-065).
+- README improved (header, results at a glance, gallery, documentation, lender requirements, security notes); new `PROJECT_EXPLAINED.md`.
+
+**Test results**
+- `ruff check .`: all checks passed. `pytest`: 281 passed; coverage of `src/loanlens` 98%.
+
+### Fresh-clone verification (final)
+- `git clone` of the local repository (commit `e68fcc4`) into a temporary folder **outside** the project, `py -3.11 -m venv .venv`, `pip install -r requirements.txt`: no errors.
+- Copied the three CSVs into `data/raw/`; `python -m loanlens.model` built the cleaned data and the model in 14 seconds with the model-card metrics (ROC-AUC 0.9942, PR-AUC 0.9946, F1 0.9639).
+- `pytest`: 281 passed. `ruff check .`: all checks passed.
+- `streamlit run app/Home.py` from the clone: every page (Home, Check My Eligibility with approved / rejected / borderline examples, Bulk Check with the 1,000-row synthetic upload, Analytics, About) was driven in headless Chromium; the server log had no errors.
+- The temporary clone and its virtual environment were deleted afterwards; `git status` in the project showed only the intended changes.

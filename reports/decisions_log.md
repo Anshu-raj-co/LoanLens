@@ -414,6 +414,11 @@ Each entry records what was found, what was chosen, and why.
 - **Found:** `tests/fixtures/batch_1000.csv` held 980 rows sampled from the primary Kaggle dataset, and its 20 bad rows were built on one real row.
 - **Chose:** replaced it with a fully synthetic file from `scripts/make_batch_fixture.py` (seed 20261106): CIBIL uniform 300-900, income 2-99 lakh, loan 1.5x-4x income, even terms 2-20 years, assets scaled to income, about 5% of incomes and loan amounts written with Indian grouping, and the same 20 bad rows (same line numbers and error types) so `tests/test_batch.py` needed no change. Scored result: 980 valid rows, 547 Approved, 433 Rejected, 80 borderline; all 281 tests pass. Since nothing in the repository now comes from the Kaggle files, the earlier caveat in D-060 about redistributing the fixture no longer applies.
 
+### D-065 Screenshots retaken with Playwright
+- **Chose:** Playwright 1.49.1 with Chromium installed *inside* the virtual environment (`PLAYWRIGHT_BROWSERS_PATH=0`), listed in a new `requirements-dev.txt` rather than `requirements.txt`. A throwaway capture script (kept outside the repository) starts the app, fills the form with built-in example applicants (approved: example 1; rejected: example 3, CIBIL 480; rejected + borderline: example 6, CIBIL 540) and uploads the synthetic fixture, with the skipped-rows report expanded.
+- **Password:** the server was started with a random, never-printed `LOANLENS_MANAGER_PASSWORD`, so neither a real nor the demo password was typed on screen (the field shows only masked dots) and the "demo password in use" note does not appear.
+- **Files:** the seven existing names were kept and `08_eligibility_rejected.png` was added for the plain rejected result. Each PNG was quantised to 256 colours (48-194 KB) and checked visually: no blank pages, errors or bank names. Old screenshots in the git history showed the former wording, so they are removed from history during the rewrite (D-066).
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -423,3 +428,6 @@ Each entry records what was found, what was chosen, and why.
 - Consider a co-applicant income field later; the dataset has none, so it was not modelled.
 - For uploads above 50,000 rows, XGBoost could use more threads (`n_jobs`) at scoring time only; training stays single-threaded for determinism.
 - Optional "Try an example" buttons on the customer page that load the six hypothetical examples, shown with the same ✅/❌ styling.
+- Add a LICENSE file (for example MIT) so others know how they may reuse the code; the datasets keep their own licences.
+- Add GitHub repository topics (streamlit, explainable-ai, credit-scoring, xgboost, shap) and a short description.
+- Add a GitHub Actions workflow running `ruff` and the data-free part of `pytest` on each push.

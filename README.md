@@ -1,26 +1,69 @@
 # LoanLens: Explainable Loan Pre-Eligibility & Risk Insights
 
-LoanLens is a **pre-screening and decision-support prototype**, an independent proof of concept. It estimates whether a loan application is likely to be **approved or rejected**, shows how confident the model is, and explains **why** in plain language, including what would likely change the result.
+**LoanLens estimates whether a loan application is likely to be approved or rejected, and explains why in plain language, including what would likely change the result.**
+
+> **Independent proof of concept for learning and demonstration. Not a lending decision. Uses public synthetic data.**
+
+![Check My Eligibility: a rejected and borderline result with reasons and what would change it](reports/screenshots/04_eligibility_rejected_borderline.png)
+
+LoanLens is a **pre-screening and decision-support prototype**, an independent proof of concept. It has two modes: a customer checks their own details in a form, and a bank manager uploads a CSV of many applicants and gets a decision, a likelihood and reasons for every row.
 
 > **Approval, not default.** LoanLens predicts the loan *approval decision* recorded in a public, **synthetic** dataset. It does **not** predict default (a disbursed loan that later goes unpaid, NPA / 90+ days overdue), because there is no repayment data. It is not a lending decision, no real customer or bank data is used, and no real-world accuracy is claimed. Every policy threshold is a placeholder, illustrative until replaced by a lender's real credit policy.
 
-![Check My Eligibility: rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png)
+Author: Anshu Raj (GitHub: Anshu-raj-co)
 
 ## Contents
 
+- [Results at a glance](#results-at-a-glance)
+- [Screenshots](#screenshots)
+- [Documentation](#documentation)
 - [Quick start (fresh clone)](#quick-start-fresh-clone)
 - [Data](#data)
 - [The pages](#the-pages)
 - [How a decision is made](#how-a-decision-is-made)
 - [Bank manager password (prototype gate)](#bank-manager-password-prototype-gate)
+- [Security notes](#security-notes)
 - [Project structure](#project-structure)
 - [Development](#development)
 - [Limitations](#limitations)
+- [What a lender would need to provide to take this further](#what-a-lender-would-need-to-provide-to-take-this-further)
 - [Future work](#future-work)
+
+## Results at a glance
+
+| | |
+|---|---|
+| **Chosen model** | XGBoost with monotone constraints (a higher CIBIL never lowers, a bigger loan never raises the score) and isotonic calibration, on 5 features. Chosen as the simplest model within about 1% of the best; the constraints cost 0.4 ROC-AUC points. |
+| **Cross-validation** (stratified 5-fold, seed 42) | ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546 |
+| **Leakage check** | Shuffled labels give ROC-AUC 0.499 (chance). CIBIL alone reaches 0.960; without CIBIL the model drops to 0.584. |
+| **Tests** | 281 passing (`pytest`), 98% coverage of `src/loanlens`, `ruff` clean |
+| **Batch speed** (measured) | 1,000 rows in about 0.7 s, 10,000 rows in about 6.2 s, 50,000 rows in about 16-32 s |
+| **Benchmark** | In the primary dataset, **CIBIL dominates** (about 99% approved above 550, about 10% at or below). In `bank_loan_data.csv`, **a previous default dominates** and credit score alone had almost no effect (ROC-AUC 0.50). |
+
+The scores are near-perfect because the synthetic label is close to a simple rule, not because the problem is easy in reality. Details: [reports/model_card.md](reports/model_card.md) and [reports/benchmark.md](reports/benchmark.md).
+
+## Screenshots
+
+All screenshots use the built-in hypothetical example applicants or the fully synthetic test file.
+
+| | |
+|---|---|
+| ![Home page](reports/screenshots/01_home.png) **Home:** purpose, disclaimer and the illustrative-thresholds notice. | ![Eligibility form](reports/screenshots/02_eligibility_form.png) **Check My Eligibility:** the 8-field form with hints and Indian-grouped amounts. |
+| ![Approved result](reports/screenshots/03_eligibility_approved.png) **Approved:** green banner, likelihood band and the factors working in the applicant's favour. | ![Rejected result](reports/screenshots/08_eligibility_rejected.png) **Rejected:** red banner, the exact rule that failed, and what would likely change the result. |
+| ![Rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png) **Rejected + borderline:** CIBIL 540 is just below the minimum, so manual review is recommended. | ![Bulk Check](reports/screenshots/05_bulk_check.png) **Bulk Check:** 1,000-row synthetic upload with summary cards, the skipped-rows report and coloured status cells. |
+| ![Analytics](reports/screenshots/06_analytics.png) **Analytics:** approval patterns in the training data, model drivers and the latest batch. | ![About](reports/screenshots/07_about.png) **About:** framing, metrics, current policy settings, borderline rules, benchmark and model card. |
+
+## Documentation
+
+- [PROJECT_EXPLAINED.md](PROJECT_EXPLAINED.md): the project in plain English, then a technical deep dive.
+- [USER_GUIDE.md](USER_GUIDE.md): step-by-step instructions for customers and bank managers, including the CSV columns.
+- [reports/model_card.md](reports/model_card.md): data, metrics, calibration, leakage checks, constraints and limitations.
+- [reports/benchmark.md](reports/benchmark.md): comparison with the larger `bank_loan_data.csv` dataset.
+- [reports/decisions_log.md](reports/decisions_log.md): every assumption and placeholder, and the reasoning behind each decision.
 
 ## Quick start (fresh clone)
 
-Requires **Python 3.11** (Windows commands shown; on macOS/Linux use `python3.11 -m venv .venv` and `source .venv/bin/activate`).
+Requires **Python 3.11**. Windows commands are shown; on macOS/Linux use `python3.11 -m venv .venv` and `source .venv/bin/activate`.
 
 **1. Get the code and put the data in place.** Download the three CSV files listed under [Data](#data) and save them in `data/raw/` with exactly these names:
 
@@ -30,23 +73,19 @@ data/raw/bank_loan_data.csv          # benchmark notebook only
 data/raw/loan_data.csv               # sanity check only
 ```
 
-**2. Three commands to install and run:**
+**2. Install, build the model once, and run:**
 
 ```bash
-py -3.11 -m venv .venv && .venv\Scripts\activate     # 1. create and activate the virtual environment
-pip install -r requirements.txt                       # 2. install pinned packages + LoanLens itself
-streamlit run app/Home.py                             # 3. start the app (http://localhost:8501)
+py -3.11 -m venv .venv               # create the virtual environment
+.venv\Scripts\activate               # activate it
+pip install -r requirements.txt      # pinned packages + LoanLens itself
+python -m loanlens.model             # build the cleaned data and the model (models/ is not committed)
+streamlit run app/Home.py            # start the app at http://localhost:8501
 ```
 
-**Before the first run, build the model once** (the `models/` folder is not committed):
+`python -m loanlens.model` cleans `data/raw/loan_approval_dataset.csv` into `data/processed/`, cross-validates the final model and saves `models/loanlens_model.joblib` (well under a minute). If you start the app without it, every page shows a friendly message telling you to run this command; nothing crashes.
 
-```bash
-python -m loanlens.model
-```
-
-This cleans `data/raw/loan_approval_dataset.csv` into `data/processed/`, cross-validates the final model and saves `models/loanlens_model.joblib` (about a minute). If you start the app without it, every page shows a friendly message telling you to run this command; nothing crashes.
-
-This whole sequence was verified from a fresh `git clone` in an empty folder (see `reports/progress.md`, Phase 10).
+This whole sequence was verified from a fresh `git clone` (see `reports/progress.md`).
 
 ## Data
 
@@ -66,16 +105,9 @@ Licences were read from Kaggle's dataset metadata; please check each page yourse
 |---|---|
 | **Home** | Purpose, the "approval, not default" disclaimer, the placeholder-thresholds notice and links to every page. |
 | **Check My Eligibility** (customers) | An 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green ✅ Approved or red ❌ Rejected banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber borderline pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks. **Nothing entered is stored or logged.** |
-| **Bulk Check** (bank staff) | Behind the manager gate. Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. Only an **anonymised summary** of each batch is saved (`data/loanlens.sqlite`). Measured: 1,000 rows about 0.7 s, 50,000 rows about 16-32 s. |
+| **Bulk Check** (bank staff) | Behind the manager gate. Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. Only an **anonymised summary** of each batch is saved (`data/loanlens.sqlite`). |
 | **Analytics** | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. |
 | **About** | The framing, data source, model metrics, every current policy value with its enforce setting, how the borderline flag works, the benchmark summary and the full model card. |
-
-| | |
-|---|---|
-| ![Home](reports/screenshots/01_home.png) | ![Approved result](reports/screenshots/03_eligibility_approved.png) |
-| ![Bulk Check](reports/screenshots/05_bulk_check.png) | ![Analytics](reports/screenshots/06_analytics.png) |
-
-More screenshots: `reports/screenshots/` (form, About page). Customer and bank-manager instructions: [USER_GUIDE.md](USER_GUIDE.md).
 
 ## How a decision is made
 
@@ -105,16 +137,23 @@ The password is read, in order, from:
    manager_password = "choose-a-password"
    ```
 
-3. otherwise the **local demo default `loanlens-demo`**, and the sidebar says that the demo password is in use. Set your own password before showing the app to anyone else.
+3. otherwise the **local demo default `loanlens-demo`**, and the sidebar says that the demo password is in use.
 
-No other password or secret exists in the code or the repository.
+## Security notes
+
+- The manager gate is a **prototype gate, not real authentication**.
+- The documented demo password `loanlens-demo` is for **local use only**. Set your own with `LOANLENS_MANAGER_PASSWORD` or `.streamlit/secrets.toml` before showing the app to anyone.
+- **Never host the app publicly with the demo password.**
+- Customer mode stores nothing. Bulk Check saves only anonymised batch summaries (counts, approval rate, top reasons) in a local SQLite file; applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policy.yaml` (it is off).
+- Datasets, the model file, the SQLite database, `.env` and `.streamlit/secrets.toml` are gitignored. No other password or secret exists in the code or the repository.
 
 ## Project structure
 
 ```
 CLAUDE.md                 project brief and working agreement
-README.md, USER_GUIDE.md
+README.md, USER_GUIDE.md, PROJECT_EXPLAINED.md
 requirements.txt          pinned packages (+ `-e .` for the loanlens package)
+requirements-dev.txt      optional extras (Playwright, for screenshots)
 pyproject.toml            package, ruff and pytest settings
 config/policy.yaml        every threshold, enforce flag and display setting (all PLACEHOLDERS)
 .streamlit/config.toml    light theme; stack traces hidden from users
@@ -140,19 +179,20 @@ src/loanlens/
   config.py, examples.py  policy loading; six hypothetical example applicants
 app/                      Streamlit pages (layout only; all logic is in src/loanlens)
 reports/                  model card, benchmark, decisions log, progress, examples, screenshots
-scripts/                  example_decisions.py
-tests/                    pytest suite (unit tests and headless page tests)
+scripts/                  example_decisions.py, make_batch_fixture.py
+tests/                    pytest suite (unit tests and headless page tests); fixtures/ is synthetic
 ```
 
 ## Development
 
 ```bash
-python -m loanlens.model             # (re)build cleaned data and the model
-python -m loanlens.rules             # write reports/rules_vs_labels.md
-python scripts/example_decisions.py  # write reports/example_decisions.md
+python -m loanlens.model               # (re)build cleaned data and the model
+python -m loanlens.rules               # write reports/rules_vs_labels.md
+python scripts/example_decisions.py    # write reports/example_decisions.md
+python scripts/make_batch_fixture.py   # regenerate the synthetic tests/fixtures/batch_1000.csv
 ruff check .
-pytest                               # 281 tests
-pytest --cov=loanlens                # coverage of src/loanlens (98%)
+pytest                                 # 281 tests
+pytest --cov=loanlens                  # coverage of src/loanlens (98%)
 ```
 
 Tests that need the dataset or model skip themselves if `data/raw/` is empty.
@@ -166,6 +206,14 @@ Tests that need the dataset or model skip themselves if `data/raw/` is empty.
 - **Assumed interest rate.** The data has no rate or existing EMIs, so EMI uses an assumed 10% a year and the EMI-to-income rule is advisory only.
 - **Narrow training ranges.** Loan-to-income only spans 1.5 to 4.0 in the data; inputs outside the training ranges get a warning.
 - **Prototype gate.** The manager password is not real authentication.
+
+## What a lender would need to provide to take this further
+
+- **Its real credit-policy thresholds** and which rules are hard rules, replacing every placeholder in `config/policy.yaml` (the full list is at the top of [reports/decisions_log.md](reports/decisions_log.md)).
+- **Repayment outcome data** for disbursed loans, to build a separate default-risk model with its own target.
+- **Integration with its systems** (loan origination, credit bureau pulls, product interest rates and existing EMIs).
+- **Proper authentication and audit logging** for staff, replacing the prototype gate.
+- **A compliance and fairness review** of the data, features, reasons and wording before any use with real applicants.
 
 ## Future work
 

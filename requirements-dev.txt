@@ -1,0 +1,7 @@
+# LoanLens - optional development extras (not needed to run the app or the tests)
+-r requirements.txt
+
+# Screenshot capture for reports/screenshots/ (headless browser).
+# After installing, fetch Chromium into the virtual environment with:
+#   PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install chromium
+playwright==1.49.1
