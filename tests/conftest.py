@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 from argon2 import PasswordHasher, Type
 
-from loanlens import cleaning, model, storage
+from loanlens import cleaning, jobs, model, storage, worker
 from loanlens.auth import passwords
 from loanlens.auth import service as auth_service
 from loanlens.auth import settings as auth_settings
@@ -24,6 +24,10 @@ AUTH_ENV = (
     auth_settings.ENV_BOOTSTRAP_EMAIL,
     auth_settings.ENV_BOOTSTRAP_PASSWORD,
 )
+JOB_ENV = (
+    jobs.ENV_RETENTION, jobs.ENV_CHUNK, jobs.ENV_MAX_ROWS, jobs.ENV_MAX_UPLOAD_MB,
+    jobs.ENV_AUDIT, jobs.ENV_AUDIT_CHUNK, jobs.ENV_POLL, jobs.ENV_STALE,
+)  # fmt: skip
 # Generated per test run, never stored: the signing key for test sessions.
 TEST_JWT_SECRET = secrets.token_urlsafe(48)
 # Cheap argon2id parameters so the suite stays fast; production uses the library defaults.
@@ -50,11 +54,16 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for name in AUTH_ENV:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(auth_settings.ENV_SECRET, TEST_JWT_SECRET)
+    for name in JOB_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(jobs.ENV_JOBS_DIR, str(tmp_path / "jobs"))
+    monkeypatch.setenv(jobs.ENV_EMBEDDED, "0")  # tests run jobs explicitly
     monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "loanlens.sqlite")
     monkeypatch.setattr(passwords, "HASHER", FAST_HASHER)
     auth_service.reset_bootstrap_check()
     auth_settings.reset_ephemeral_key()
     yield
+    worker.stop_embedded()
     db_engine.reset_caches()
 
 

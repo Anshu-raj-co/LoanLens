@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from app_support import open_page
+from app_support import open_page, submit_bulk
 
 from loanlens import batch, storage
 from loanlens.config import BatchConfig, StorageConfig, load_policy
@@ -305,22 +305,6 @@ def test_latest_summary_when_no_database(tmp_path) -> None:
 # The Bulk Check page -----------------------------------------------------------------------
 
 
-class _Upload:
-    def __init__(self, data: bytes) -> None:
-        self._data = data
-
-    def getvalue(self) -> bytes:
-        return self._data
-
-
-def _bulk_page(app_path, monkeypatch, upload: bytes | None, tmp_path):
-    import streamlit as st
-
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload(upload) if upload else None)
-    monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "page.sqlite")
-    return open_page("pages/2_Bulk_Check.py").run()
-
-
 def test_bulk_page_gated(app_path) -> None:
     at = open_page("pages/2_Bulk_Check.py", role=None).run()
     assert not at.exception
@@ -328,27 +312,41 @@ def test_bulk_page_gated(app_path) -> None:
     at = open_page("pages/2_Bulk_Check.py", role="applicant").run()
     assert not at.exception
     assert any("bank managers only" in i.value for i in at.info)
-    assert not at.get("download_button")
+    assert not at.get("download_button") or all(
+        "results" not in b.label.lower() for b in at.get("download_button")
+    )
 
 
-def test_bulk_page_with_fixture(app_path, monkeypatch, tmp_path, fixture_bytes, artifact) -> None:
-    at = _bulk_page(app_path, monkeypatch, fixture_bytes, tmp_path)
+def test_bulk_page_with_fixture(app_path, monkeypatch, fixture_bytes, artifact) -> None:
+    at = submit_bulk(monkeypatch, fixture_bytes, name="applicants.csv")
     assert not at.exception, at.exception
     assert any("20 of 1,000 rows have problems" in w.value for w in at.warning)
-    assert [m.value for m in at.metric][0] == "980"
-    assert storage.latest_summary(tmp_path / "page.sqlite")["valid_rows"] == 980
-    at.multiselect[0].set_value(["Rejected"]).run()
-    assert not at.exception
+    assert [m.value for m in at.metric][:3] == ["980", "547", "433"]
+    assert storage.latest_summary()["valid_rows"] == 980
+    labels = [b.label for b in at.get("download_button")]
+    assert {"Download results (CSV)", "Download results (Parquet)",
+            "Download skipped rows (CSV)"} <= set(labels)  # fmt: skip
+    table = at.dataframe[0].value
+    assert table.loc[0, "File"] == "applicants.csv" and table.loc[0, "Status"] == "Completed"
 
 
-def test_bulk_page_missing_columns(app_path, monkeypatch, tmp_path, artifact) -> None:
+def test_bulk_page_shows_queued_job_without_worker(app_path, monkeypatch, artifact) -> None:
+    at = submit_bulk(monkeypatch, batch.template_csv(), run_job=False)
+    assert not at.exception, at.exception
+    assert any("No batch worker is running" in w.value for w in at.warning)
+    assert any("Queued" in p.text for p in at.get("progress")) or any(
+        "queued" in i.value for i in at.info
+    )
+
+
+def test_bulk_page_missing_columns(app_path, monkeypatch, artifact) -> None:
     frame = pd.read_csv(io.BytesIO(batch.template_csv())).drop(columns=["loan_term"])
-    at = _bulk_page(app_path, monkeypatch, csv_bytes(frame), tmp_path)
+    at = submit_bulk(monkeypatch, csv_bytes(frame))
     assert not at.exception
     assert any("Required columns are missing: loan_term" in e.value for e in at.error)
 
 
-def test_bulk_page_empty_file(app_path, monkeypatch, tmp_path, artifact) -> None:
-    at = _bulk_page(app_path, monkeypatch, b" ", tmp_path)
+def test_bulk_page_empty_file(app_path, monkeypatch, artifact) -> None:
+    at = submit_bulk(monkeypatch, b" ")
     assert not at.exception
     assert any("empty" in e.value for e in at.error)

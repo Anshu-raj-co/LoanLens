@@ -17,20 +17,22 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from typing import Annotated, Any
 
-from fastapi import Body, Depends, FastAPI, Query, Request
+from fastapi import Body, Depends, FastAPI, File, Form, Path, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from loanlens import auth, registry, services, storage
+from loanlens import auth, jobs, registry, services, storage, worker
 from loanlens import model as model_mod
 from loanlens.api.ratelimit import RateLimiter
 from loanlens.api.schemas import (
     AuditItem,
     AuditResponse,
+    BatchJobList,
+    BatchJobOut,
     BatchResponse,
     Credentials,
     ErrorResponse,
@@ -43,6 +45,7 @@ from loanlens.api.schemas import (
 )
 from loanlens.api.settings import ApiSettings, load_api_settings
 from loanlens.audit import AuditFilters
+from loanlens.batch import BatchError
 from loanlens.config import UnknownProfileError, list_profiles, load_profile
 from loanlens.db.engine import DatabaseError, ensure_schema, get_engine
 from loanlens.formatting import likelihood_band, likelihood_text
@@ -170,6 +173,10 @@ def _install_error_handlers(app: FastAPI) -> None:
     handle(UnknownProfileError, 422, "unknown_profile")
     handle(auth.ConfigurationError, 503, "configuration_error")
     handle(DatabaseError, 503, "database_unavailable")
+    handle(jobs.JobNotFound, 404, "job_not_found")
+    handle(jobs.JobFileUnavailable, 409, "file_unavailable")
+    handle(jobs.UploadTooLarge, 413, "upload_too_large")
+    handle(BatchError, 422, "invalid_file")
 
 
 # ---- Dependencies ----------------------------------------------------------------------------
@@ -237,6 +244,20 @@ def _score_response(result: DecisionResult, request_id: str, audit_id: str) -> S
     )
 
 
+def _job_out(job: jobs.JobView) -> BatchJobOut:
+    base = f"/v1/batches/{job.id}"
+    links: dict[str, str] = {}
+    if job.status == jobs.COMPLETED and job.has_result:
+        links = {"result_url": f"{base}/result", "result_csv_url": f"{base}/result?format=csv"}
+        if job.has_errors:
+            links["errors_url"] = f"{base}/errors"
+    fields = {k: getattr(job, k) for k in BatchJobOut.model_fields if hasattr(job, k)}
+    return BatchJobOut(**fields, progress=job.fraction, **links)
+
+
+JobId = Annotated[str, Path(pattern=jobs.JOB_ID_PATTERN, description="Batch job id")]
+
+
 def _token_response(signed: auth.SignedIn) -> TokenResponse:
     p = signed.principal
     return TokenResponse(
@@ -274,11 +295,18 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI):
         auth.signing_key()  # refuses to start in production or hosted mode without a secret
         auth.load_settings()
+        job_settings = jobs.load_job_settings()
         try:
             auth.bootstrap_from_env()
         except DatabaseError:
             logger.warning("bootstrap skipped: database unavailable")
+        if job_settings.embedded_worker:
+            try:
+                worker.ensure_worker(settings=job_settings)
+            except DatabaseError:
+                logger.warning("embedded worker not started: database unavailable")
         yield
+        worker.stop_embedded()
 
     app = FastAPI(
         title="LoanLens API",
@@ -422,6 +450,71 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
             batch_id=run.batch_id, request_id=run.request_id, count=len(results),
             results=results,
         )  # fmt: skip
+
+    # ---- Batch jobs ---------------------------------------------------------------------
+
+    @app.post("/v1/batches", tags=["batches"], status_code=202, response_model=BatchJobOut,
+              responses={**ERRORS, 413: {"model": ErrorResponse}})  # fmt: skip
+    def submit_batch(
+        principal: Principal,
+        file: Annotated[UploadFile, File(description="CSV or Parquet file")],
+        product: Annotated[str, Form(max_length=32)] = "personal",
+        include_positive: Annotated[bool, Form()] = False,
+    ) -> BatchJobOut:
+        """Upload a CSV or Parquet file as a background job (managers only).
+
+        The job runs in a worker; poll `GET /v1/batches/{id}` and download the results when
+        it has completed. Every scored row is recorded in the audit trail.
+        """
+        job = services.submit_batch_job(
+            principal, file.file, file.filename or "upload", product=product,
+            include_positive=include_positive,
+        )  # fmt: skip
+        return _job_out(job)
+
+    @app.get("/v1/batches", tags=["batches"], response_model=BatchJobList, responses=ERRORS)
+    def list_batches(
+        principal: Principal, limit: Annotated[int, Query(ge=1, le=200)] = 50
+    ) -> BatchJobList:
+        """Recent batch jobs of all managers, newest first (managers only)."""
+        items = [_job_out(j) for j in services.list_batch_jobs(principal, limit)]
+        return BatchJobList(count=len(items), items=items)
+
+    @app.get("/v1/batches/{job_id}", tags=["batches"], response_model=BatchJobOut,
+             responses={**ERRORS, 404: {"model": ErrorResponse}})  # fmt: skip
+    def get_batch(principal: Principal, job_id: JobId) -> BatchJobOut:
+        """One batch job with its progress and counts (managers only)."""
+        return _job_out(services.get_batch_job(principal, job_id))
+
+    @app.post("/v1/batches/{job_id}/cancel", tags=["batches"], response_model=BatchJobOut,
+              responses={**ERRORS, 404: {"model": ErrorResponse}})  # fmt: skip
+    def cancel_batch(principal: Principal, job_id: JobId) -> BatchJobOut:
+        """Cancel a queued job, or stop a running one after its current chunk (managers)."""
+        return _job_out(services.cancel_batch_job(principal, job_id))
+
+    @app.get("/v1/batches/{job_id}/result", tags=["batches"], response_class=FileResponse,
+             responses={**ERRORS, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}})  # fmt: skip
+    def batch_result(
+        principal: Principal,
+        job_id: JobId,
+        format: Annotated[str, Query(pattern="^(parquet|csv)$")] = "parquet",
+    ) -> FileResponse:
+        """Download a completed job's results as Parquet (default) or CSV (managers)."""
+        kind = "result_csv" if format == "csv" else "result"
+        path = services.batch_job_file(principal, job_id, kind)
+        media = "text/csv" if format == "csv" else "application/vnd.apache.parquet"
+        return FileResponse(path, media_type=media,
+                            filename=f"loanlens_results_{job_id[:8]}.{format}")  # fmt: skip
+
+    @app.get("/v1/batches/{job_id}/errors", tags=["batches"], response_class=FileResponse,
+             responses={**ERRORS, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}})  # fmt: skip
+    def batch_errors(principal: Principal, job_id: JobId) -> FileResponse:
+        """Download the skipped rows (row number, applicant ID, problem) as CSV (managers)."""
+        path = services.batch_job_file(principal, job_id, "errors")
+        return FileResponse(path, media_type="text/csv",
+                            filename=f"loanlens_errors_{job_id[:8]}.csv")  # fmt: skip
 
     # ---- Policies and model -------------------------------------------------------------
 

@@ -43,3 +43,8 @@ htmlcov/
 
 # Large generated test files (e.g. 50k-row stress tests)
 big_*.csv
+
+# Batch job uploads and results (private; may contain applicant IDs) and generated
+# synthetic benchmark and load-test data
+data/jobs/
+data/benchmarks/

@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from app_support import TEST_PASSWORD, new_session, open_page
+from app_support import TEST_PASSWORD, new_session, open_page, submit_bulk
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -44,7 +44,8 @@ def _drop_postgres(url: str) -> None:
     db_engine.reset_caches()
     with db_engine.get_engine(url).begin() as conn:
         for table in (
-            "decision_audit", "auth_events", "users", "batch_rows", "batch_summaries",
+            "batch_workers", "batch_jobs", "decision_audit", "auth_events", "users", "batch_rows",
+            "batch_summaries",
             "alembic_version",
         ):  # fmt: skip
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
@@ -161,53 +162,53 @@ def test_ui_path_without_database_shows_no_result(app_path, artifact, monkeypatc
     assert not any("Your result" in s.value for s in at.subheader)
 
 
-class _Upload:
-    def getvalue(self) -> bytes:
-        return FIXTURE.read_bytes()
-
-
 def test_batch_path_writes_one_record_per_valid_row(app_path, artifact, monkeypatch) -> None:
-    import streamlit as st
-
     manager = new_session(auth.MANAGER)
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload())
-    at = open_page("pages/2_Bulk_Check.py", session=manager).run()
+    at = submit_bulk(monkeypatch, FIXTURE.read_bytes(), session=manager)
     assert not at.exception, at.exception
     page = services.audit_records(manager.principal, AuditFilters(channel="batch"))
     assert page.total == 980 and page.counts["total"] == 980
     batch_ids = {r["batch_id"] for r in services.audit_export(manager.principal)}
     assert len(batch_ids) == 1 and None not in batch_ids
     assert all(r["user_ref"] == manager.principal.audit_ref for r in page.items)
+    assert all(r["actor_role"] == "manager" for r in page.items)
+    job = services.list_batch_jobs(manager.principal)[0]
+    assert job.audit_batch_id in batch_ids and job.rows_audited == 980
     assert storage.latest_summary()["valid_rows"] == 980
 
 
 def test_batch_records_match_the_results(artifact) -> None:
+    import pandas as pd
+
+    from loanlens import worker
+
     manager = new_session(auth.MANAGER).principal
-    parsed = batch.parse_upload(FIXTURE.read_bytes())
-    run = services.score_batch_upload(manager, parsed, artifact=artifact)
+    with open(FIXTURE, "rb") as fh:
+        job = services.submit_batch_job(manager, fh, "fixture.csv")
+    worker.work_once(artifact=artifact)
+    results = pd.read_parquet(services.batch_job_file(manager, job.id, "result"))
     rows = services.audit_export(manager)
-    assert len(rows) == len(run.results)
+    assert len(rows) == len(results) == 980
+    parsed = batch.parse_upload(FIXTURE.read_bytes())
     by_inputs = {tuple(sorted(r["inputs"].items())): r for r in rows}
-    first = run.results.iloc[0]
-    values = parsed.values.iloc[0]
-    record = by_inputs[tuple(sorted(audit.model_inputs(values).items()))]
-    assert record["status"] == first["status"]
-    assert record["probability"] == pytest.approx(first["probability"])
-    assert record["reason_codes"] == [c for c in first["reason_codes"].split(";") if c]
-    assert record["batch_id"] == run.batch_id and record["request_id"] == run.request_id
+    for i in (0, 500, 979):
+        record = by_inputs[tuple(sorted(audit.model_inputs(parsed.values.iloc[i]).items()))]
+        res = results.iloc[i]
+        assert record["status"] == res["status"]
+        assert record["probability"] == pytest.approx(res["probability"])
+        assert record["reason_codes"] == [c for c in res["reason_codes"].split(";") if c]
+        assert record["request_id"] == job.id
+    assert {r["batch_id"] for r in rows} == {services.get_batch_job(manager, job.id).audit_batch_id}
 
 
 def test_batch_without_database_shows_no_results(app_path, artifact, monkeypatch) -> None:
-    import streamlit as st
-
     def broken(*_a, **_k):
         raise DatabaseError()
 
     monkeypatch.setattr(audit, "write", broken)
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload())
-    at = open_page("pages/2_Bulk_Check.py").run()
+    at = submit_bulk(monkeypatch, FIXTURE.read_bytes())
     assert not at.exception
-    assert any("audit trail" in e.value for e in at.error)
+    assert any("database could not be reached" in e.value for e in at.error)
     assert not at.get("download_button") or all(
         "results" not in b.label.lower() for b in at.get("download_button")
     )

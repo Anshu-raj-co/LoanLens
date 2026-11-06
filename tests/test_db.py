@@ -23,7 +23,7 @@ from loanlens.db import engine as db_engine
 from loanlens.db.engine import DatabaseError, normalise_url
 
 PG_ENV = "LOANLENS_TEST_POSTGRES_URL"
-HEAD = "0003_audit"
+HEAD = "0004_batch_jobs"
 REAL_DB_PATH = storage.db_path  # captured before the autouse fixture redirects it
 SUMMARY = {
     "total_rows": 10,
@@ -45,7 +45,8 @@ def _clean_postgres(url: str) -> None:
     db_engine.reset_caches()
     with db_engine.get_engine(url).begin() as conn:
         for table in (
-            "decision_audit", "auth_events", "users", "batch_rows", "batch_summaries",
+            "batch_workers", "batch_jobs", "decision_audit", "auth_events", "users", "batch_rows",
+            "batch_summaries",
             "alembic_version",
         ):  # fmt: skip
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
@@ -76,6 +77,8 @@ def test_migration_creates_tables(db_url) -> None:
         "users",
         "auth_events",
         "decision_audit",
+        "batch_jobs",
+        "batch_workers",
         "alembic_version",
     } <= names
     with db_engine.get_engine(db_url).connect() as conn:
@@ -269,6 +272,8 @@ def test_alembic_command_line(tmp_path, monkeypatch, capsys, restore_logging) ->
         "users",
         "auth_events",
         "decision_audit",
+        "batch_jobs",
+        "batch_workers",
         "alembic_version",
     } <= names
     command.downgrade(cfg, "base")

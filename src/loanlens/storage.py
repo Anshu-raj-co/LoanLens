@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,7 @@ def _exists(url: str) -> bool:
 def save_summary(
     summary: dict[str, Any],
     model_version: str,
-    results: pd.DataFrame | None = None,
+    results: pd.DataFrame | Iterable[pd.DataFrame] | None = None,
     policy: Policy | None = None,
     path: Path | None = None,
 ) -> int:
@@ -86,7 +87,8 @@ def save_summary(
     Args:
         summary: output of :func:`loanlens.batch.summarise` (aggregates only).
         model_version: version string of the model used.
-        results: per-row results; used only when ``store_applicant_ids`` is enabled.
+        results: per-row results (one frame, or an iterable of frames so a large batch is
+            never held in memory at once); used only when ``store_applicant_ids`` is enabled.
         policy: policy (for the storage settings); defaults to the personal profile.
         path: SQLite file to use instead of the configured database.
 
@@ -114,24 +116,28 @@ def save_summary(
         session.add(record)
         session.flush()
         batch_id = int(record.id)
-        if policy.storage.store_applicant_ids and results is not None and len(results):
-            session.execute(
-                insert(batch_rows),
-                [
-                    {
-                        "batch_id": batch_id,
-                        "applicant_id": str(a),
-                        "status": str(s),
-                        "probability": float(p),
-                    }
-                    for a, s, p in zip(
-                        results["applicant_id"],
-                        results["status"],
-                        results["probability"],
-                        strict=True,
-                    )
-                ],
-            )
+        if policy.storage.store_applicant_ids and results is not None:
+            frames = [results] if isinstance(results, pd.DataFrame) else results
+            for frame in frames:
+                if not len(frame):
+                    continue
+                session.execute(
+                    insert(batch_rows),
+                    [
+                        {
+                            "batch_id": batch_id,
+                            "applicant_id": str(a),
+                            "status": str(s),
+                            "probability": float(p),
+                        }
+                        for a, s, p in zip(
+                            frame["applicant_id"],
+                            frame["status"],
+                            frame["probability"],
+                            strict=True,
+                        )
+                    ],
+                )
     return batch_id
 
 

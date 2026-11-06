@@ -120,6 +120,53 @@ def row_from_result(result: DecisionResult, inputs: Mapping[str, Any], **context
     )  # fmt: skip
 
 
+def batch_rows(
+    values: Any,
+    results: Any,
+    *,
+    model_version: str,
+    request_id: str,
+    batch_id: str,
+    user_ref: str,
+    actor_role: str,
+    policies: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Audit records for scored batch rows.
+
+    ``values`` holds the validated model inputs and ``results`` the matching rows of
+    :func:`loanlens.batch.score` (same order). ``policies`` caches loaded profiles by name.
+    """
+    from loanlens.config import load_profile
+
+    policies = {} if policies is None else policies
+    inputs = values[list(INPUT_COLUMNS)].to_dict("records")
+    rows = []
+    for vals, status, probability, borderline, product, codes in zip(
+        inputs, results["status"], results["probability"], results["borderline"],
+        results["product"], results["reason_codes"], strict=True,
+    ):  # fmt: skip
+        prof = policies.get(product) or policies.setdefault(product, load_profile(product))
+        rows.append(
+            build_row(
+                inputs=vals,
+                status=status,
+                probability=float(probability),
+                borderline=bool(borderline),
+                reason_codes=str(codes or "").split(";"),
+                profile=prof.profile,
+                policy_version=prof.version,
+                policy_hash=prof.content_hash,
+                model_version=model_version,
+                channel=BATCH,
+                request_id=request_id,
+                batch_id=batch_id,
+                user_ref=user_ref,
+                actor_role=actor_role,
+            )  # fmt: skip
+        )
+    return rows
+
+
 def write(url: str, rows: Sequence[dict[str, Any]], chunk_size: int = CHUNK_SIZE) -> int:
     """Insert ``rows`` in chunks (one transaction per chunk); returns the number written."""
     for start in range(0, len(rows), chunk_size):

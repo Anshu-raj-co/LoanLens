@@ -17,11 +17,12 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 8. [Signing in](#signing-in)
 9. [A record of every decision](#a-record-of-every-decision)
 10. [Connecting other systems](#connecting-other-systems)
-11. [What the colours and labels mean](#what-the-colours-and-labels-mean)
-12. [What LoanLens is not](#what-loanlens-is-not)
-13. [Honest limits](#honest-limits)
-14. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
-15. [Glossary](#glossary)
+11. [Checking very long lists](#checking-very-long-lists)
+12. [What the colours and labels mean](#what-the-colours-and-labels-mean)
+13. [What LoanLens is not](#what-loanlens-is-not)
+14. [Honest limits](#honest-limits)
+15. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
+16. [Glossary](#glossary)
 
 **[Part 2: Technical deep dive](#part-2-technical-deep-dive)**
 1. [Architecture](#1-architecture)
@@ -120,6 +121,16 @@ Besides the web pages, LoanLens has a doorway for other computer programs (calle
 
 To stop someone guessing passwords, LoanLens slows down anyone who tries to sign in too many times in a short while, both from one computer and for one account. This count starts again whenever LoanLens is restarted.
 
+## Checking very long lists
+
+A bank manager can hand LoanLens a list of up to a million applications at once, as a spreadsheet file. LoanLens does not try to read the whole list in one go. It works through it in slices of 20,000 applications: it checks each slice, writes the answers to a results file and to the permanent record, and moves on to the next slice. Because only one slice is in memory at a time, a very long list needs little more memory than a short one.
+
+The work happens in the background, so the manager can watch a progress bar, do something else, or stop the work part-way. When it is finished, the manager downloads the answers, plus a separate list of any rows that had mistakes, each with its row number so it can be found and fixed.
+
+On the laptop LoanLens was built on, a list of one million made-up applications took between about 11 and 14 minutes, and the memory it used was about the same as for a list of one hundred thousand.
+
+The uploaded list and the answer files are kept in a private place under made-up names, never the names the manager gave them. The uploaded list is removed as soon as the work ends, and the answer files, which can contain the manager's own reference numbers for applicants, are removed after 7 days. If the work is stopped part-way, the answers already written to the permanent record stay there, because nothing can be removed from it.
+
 ## What the colours and labels mean
 
 | What you see | What it means |
@@ -189,8 +200,9 @@ flowchart LR
     EXPLAIN --> DECIDE
     SCHEMA["schema.py<br/>Pydantic validation"] --> DECIDE
     DECIDE --> CUST["Check My Eligibility<br/>(single applicant)"]
-    DECIDE --> BATCH["batch.py<br/>CSV in, results out"]
-    BATCH --> BULK["Bulk Check page"]
+    DECIDE --> BATCH["batch.py + pipeline.py<br/>CSV/Parquet in chunks,<br/>results and errors files"]
+    JOBS["jobs.py + worker.py<br/>batch_jobs, atomic claims,<br/>embedded or external worker"] --> BATCH
+    BULK["Bulk Check page"] --> JOBS
     BATCH --> STORE["storage.py + db/<br/>SQLAlchemy, Alembic:<br/>anonymised batch summaries<br/>(SQLite or PostgreSQL)"]
     STORE --> ANALYTICS["Analytics page"]
     AUTH["auth/<br/>accounts, argon2id,<br/>JWT sessions, roles"] --> CUST
@@ -201,6 +213,7 @@ flowchart LR
     CUST --> SVC
     BULK --> SVC
     APIV1["api/ (FastAPI, /v1)<br/>JSON, bearer tokens"] --> SVC
+    SVC --> JOBS
     SVC --> AUDIT["audit.py<br/>decision_audit<br/>(append-only, triggers)"]
     AUDIT --> HIST["My History and Audit pages,<br/>GET /v1/audit"]
 ```
@@ -335,17 +348,20 @@ For each application: validate → rules → model probability `p` → Approved 
 
 ## 8. Batch pipeline
 
-`batch.py`:
+Since Milestone 4 every Bulk Check upload and every `POST /v1/batches` request is a **background job**, processed by a chunked, memory-safe pipeline.
 
-- **Reading:** delimiter detection (comma, semicolon, tab, pipe), UTF-8 with BOM tolerated and a cp1252 fallback, blank lines skipped, a 50,000-row limit with a clear message.
+- **Reading** (`batch.ChunkReader`): CSV through `pandas.read_csv(chunksize=...)` (delimiter detected from the header line: comma, semicolon, tab or pipe; the whole file is checked for UTF-8 first, with a cp1252 fallback; blank lines skipped; a malformed line fails the file) and Parquet through `pyarrow`'s `iter_batches`, reading only the recognised columns and turning them into text so the same validation applies (a missing value is a blank cell, which is an error, never 0). The format is detected from the content. Chunks are 20,000 rows by default (`LOANLENS_JOB_CHUNK_SIZE`). The header is checked before any row is scored.
 - **Headers:** normalised (case, spaces) and mapped through an alias table (e.g. "Income" → `income_annum`, "Tenure" → `loan_term`). Missing required columns are named exactly; duplicates that map to the same column are an error; unknown columns are ignored.
-- **Row validation:** vectorised, using the same limits and messages as the customer form (read from the Pydantic schema so they cannot drift). Amounts like "12,50,000" or "Rs 5,00,000" are accepted. Bad rows are reported with spreadsheet row numbers and skipped; the app never crashes.
-- **Loan type:** an optional `product` column (aliases such as "Loan type"); blank means `personal`, an unknown value is a row error that names the valid types. Within each chunk, rows are grouped by product and each group is decided under its own profile; output order is preserved and a `product` column is added to the results.
-- **Scoring:** `decide_many()` in chunks of 2,000 rows (drives the progress bar and bounds memory).
-- **Measured speed:** 1,000 rows 0.7 s, 10,000 rows 6.2 s, 50,000 rows 16-32 s.
-- **Storage:** `storage.py` writes one anonymised row per batch (counts, approval rate, likelihood-band counts, top rejection reason codes, model version). No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off).
+- **Row validation:** vectorised, using the same limits and messages as the customer form (read from the Pydantic schema so they cannot drift). Amounts like "12,50,000" or "Rs 5,00,000" are accepted. Bad rows are reported with their original row numbers (numbering continues across chunks) and skipped.
+- **Loan type:** the job's chosen profile, or an optional `product` column per row (an unknown value is a row error). Within each chunk, rows are grouped by product and each group is decided under its own profile; output order is preserved.
+- **Per chunk** (`pipeline.run_file`): `batch.score()` (the shared `decide_many()` core) → audit records in bulk inserts (`audit.batch_rows` + `audit.write`, 1,000 per insert) → append to `results.parquet` (fixed schema), `results.csv` and the errors CSV → running summary counts → progress callback (heartbeat, counts, cancel check). Audit records are written before the chunk's results reach a file. Decisions are identical to the previous in-memory path: a golden file captured before the change is compared column by column at several chunk sizes.
+- **Jobs** (`jobs.py`, table `batch_jobs`, Alembic `0004_batch_jobs`): status `queued` → `running` → `completed`, `failed` or `cancelled` (and `expired` once the retention clean-up has deleted the files). The worker claims the oldest queued job atomically: `SELECT ... FOR UPDATE SKIP LOCKED` then `UPDATE` on PostgreSQL; a single conditional `UPDATE ... WHERE status = 'queued'` with a claim token on SQLite. All later updates require the job to be running under the same worker id. Cancel: a queued job at once; a running job after its current chunk.
+- **Worker** (`worker.py`): `python -m loanlens.worker` (or `--once`, `--cleanup`), or an embedded daemon thread started by the Streamlit app and the API when no external worker has sent a heartbeat recently (`LOANLENS_EMBEDDED_WORKER`). It needs no session token: the submitting manager's `audit_ref` is stored on the job at submission and checked against an active manager account before the job runs. Running jobs without a heartbeat for 300 s are failed at start-up and every minute afterwards.
+- **Files:** private `LOANLENS_JOBS_DIR` (default `data/jobs/`), random 32-hex names, only that pattern accepted and only inside that directory, paths from the job record only. Uploads are deleted when the job ends; results after `LOANLENS_JOB_RETENTION_DAYS` (7).
+- **Storage:** a completed job writes one anonymised summary row (counts, approval rate, likelihood-band counts, top rejection reason codes, model version) for Analytics. No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off); if it is, per-row IDs are read back from the Parquet file in batches.
+- **Measured speed and memory:** see [reports/performance.md](reports/performance.md). On 2026-11-06 (i7-11800H laptop): 1,000,000 synthetic rows in 663.7 s on PostgreSQL and 833.5 s on SQLite with audit on (525.9 s and 633.3 s with audit off); peak memory 457 to 527 MB at every size from 100,000 to 1,000,000 rows. Profiling one 20,000-row chunk showed about 60% of scoring time in explanation work (the "what would change" search and SHAP). API load test: [reports/load_test.md](reports/load_test.md) (1 worker levels off at about 18 to 23 scores a second; 4 workers on PostgreSQL served 81 a second at 100 users, p50 93 ms).
 
-**Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revisions `0001_initial`, `0002_auth`, which adds `users` and `auth_events`, and `0003_audit`, which adds `decision_audit` with its append-only triggers and `users.token_version`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; the Bulk Check page still shows results and notes that the summary was not saved. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set. Running migrations from code never changes the process's logging: `ensure_schema()` sets a `skip_logging_config` attribute, and `env.py` applies alembic.ini's logging section only for the `alembic` command, without disabling existing loggers.
+**Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revisions `0001_initial`, `0002_auth`, which adds `users` and `auth_events`, `0003_audit`, which adds `decision_audit` with its append-only triggers and `users.token_version`, and `0004_batch_jobs`, which adds `batch_jobs` and `batch_workers`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; a completed batch job whose summary cannot be saved still completes, with a note. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set. Running migrations from code never changes the process's logging: `ensure_schema()` sets a `skip_logging_config` attribute, and `env.py` applies alembic.ini's logging section only for the `alembic` command, without disabling existing loggers.
 
 ## 9. UI and theme
 
@@ -357,7 +373,7 @@ Ten Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check, Analytics,
 
 ## 10. Testing
 
-668 passing and 1 skipped with a PostgreSQL test database (the skip is a PostgreSQL-only check on SQLite), or 659 passing and 10 skipped without one (pytest), 99% coverage of `src/loanlens`, `ruff` clean. The PostgreSQL tests ran and passed against PostgreSQL 16.15 on 2026-11-06. Categories:
+746 passing and 2 skipped with a PostgreSQL test database (both skips are PostgreSQL-only checks in their SQLite variant), or 735 passing and 13 skipped without one (pytest), 98% coverage of `src/loanlens`, `ruff` clean. The PostgreSQL tests, including job claiming with `SKIP LOCKED`, ran and passed against PostgreSQL 16.15 on 2026-11-06. Categories:
 
 - cleaning, features and EMI, each policy rule and its thresholds (including values exactly at each limit), config validation;
 - schema validation and friendly messages;
@@ -371,6 +387,7 @@ Ten Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check, Analytics,
 - session invalidation (a stolen old token is rejected after a password change, a temporary password, deactivation or reactivation, while the changing session gets a fresh token; the `ver` claim is required);
 - the service layer (`tests/test_services.py`): every protected function with no principal, a hand-built principal (applicant and manager), an applicant and a manager, plus a scan that no page calls the decision core, storage or audit internals directly;
 - the audit trail (`tests/test_audit.py`): triggers reject `UPDATE` and `DELETE` (raw SQL and ORM), chunked inserts, no update or delete code paths (AST check), records from the UI, API and batch paths, history privacy, account deletion, filters, counts and pagination, and the My History and Audit pages; the trigger tests also run on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set (run and passed on 2026-11-06);
+- batch jobs (`tests/test_jobs.py`, `tests/test_api_batches.py`): results identical to the previous batch path (golden file) at chunk sizes 37, 999, 1,000, 1,001 and 20,000; bad rows spread across chunks keep their row numbers; a chunk of only bad rows; Parquet input (text and numeric columns, aliases, missing values); unreadable, header-only, binary and fake-Parquet files; a malformed line part-way; the row limit; audit rows per chunk; settings and their validation; random file names and rejected path traversal; the upload limit; the job lifecycle, cancel while queued and while running (audited rows kept), failure messages, a deactivated manager's job, audit switched off, stale jobs failed at start-up, retention clean-up, the worker CLI and the embedded worker; **two workers never claim the same job** (6 threads, 40 jobs, on SQLite and on PostgreSQL) and a direct `SKIP LOCKED` check on PostgreSQL; every `/v1/batches` endpoint with roles, downloads and errors; and a **memory test** that streams a generated 200,000-row file and checks that peak memory grows by less than 200 MB;
 - the REST API (`tests/test_api.py`, httpx test client): authentication on every protected endpoint, roles for every endpoint, the API result identical to the service layer for all six examples under all three loan types, batch results, audit rows with the request id, pagination and filters, the OpenAPI schema, health and readiness, one error shape, CORS, rate limits per client address and per account, and JSON logs without personal data.
 
 The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), with 20 deliberately bad rows. Tests that need the Kaggle data or the model skip themselves cleanly on a fresh clone.
@@ -396,8 +413,8 @@ The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), wi
 
 ## 13. Service layer, audit trail and REST API
 
-- **Service layer** (`services.py`): `score_applicant` (any signed-in user), `score_records` and `score_batch_upload` (managers), `save_batch_summary`, `latest_batch_summary`, `recent_batch_summaries`, `training_data` and `feature_importance` (managers, for Analytics), `my_history` (own records only) and `audit_records`, `audit_export`, `audit_filter_options` (managers). Each first calls `auth.verify_principal`; failures raise `AuthorisationError` (`InvalidSession` or `PermissionDenied`). The pages and the API call nothing below this layer, and a test scans the page sources to keep it that way.
-- **Audit trail** (`audit.py`, table `decision_audit`, Alembic `0003_audit`): UUID id, `created_at` (UTC), `user_ref` (the account's `audit_ref`), `actor_role`, `channel` (`ui`, `api` or `batch`, check constraint), `batch_id`, `request_id`, profile, policy version and hash, model version, `inputs` (JSON of the eight model input fields only), status, probability, borderline and `reason_codes` (JSON). Rows are written before a result is returned (fail closed), batches in chunks of 1,000 with one `batch_id`. Triggers: SQLite `BEFORE UPDATE` and `BEFORE DELETE` with `RAISE(ABORT, ...)`; PostgreSQL a plpgsql function raised `BEFORE UPDATE OR DELETE FOR EACH ROW` and `BEFORE TRUNCATE`. The module has no update or delete function. Reads filter by date range (inclusive, UTC), status, profile, channel, model and policy version, newest first, with counts.
+- **Service layer** (`services.py`): `score_applicant` (any signed-in user), `score_records` (managers), `submit_batch_job`, `list_batch_jobs`, `get_batch_job`, `cancel_batch_job`, `batch_job_file` and `batch_job_preview` (managers; any manager sees every job), `save_batch_summary`, `latest_batch_summary`, `recent_batch_summaries`, `training_data` and `feature_importance` (managers, for Analytics), `my_history` (own records only) and `audit_records`, `audit_export`, `audit_filter_options` (managers). Each first calls `auth.verify_principal`; failures raise `AuthorisationError` (`InvalidSession` or `PermissionDenied`). The pages and the API call nothing below this layer, and a test scans the page sources to keep it that way.
+- **Audit trail** (`audit.py`, table `decision_audit`, Alembic `0003_audit`): UUID id, `created_at` (UTC), `user_ref` (the account's `audit_ref`), `actor_role`, `channel` (`ui`, `api` or `batch`, check constraint), `batch_id`, `request_id`, profile, policy version and hash, model version, `inputs` (JSON of the eight model input fields only), status, probability, borderline and `reason_codes` (JSON). Rows are written before a result is returned (fail closed); a batch job writes its rows chunk by chunk, before the chunk's results reach a file, with one `batch_id` per job (stored on the job). Records written before a job fails or is cancelled remain. Triggers: SQLite `BEFORE UPDATE` and `BEFORE DELETE` with `RAISE(ABORT, ...)`; PostgreSQL a plpgsql function raised `BEFORE UPDATE OR DELETE FOR EACH ROW` and `BEFORE TRUNCATE`. The module has no update or delete function. Reads filter by date range (inclusive, UTC), status, profile, channel, model and policy version, newest first, with counts.
 - **REST API** (`api/`): FastAPI 0.115 served by uvicorn. Endpoints as in README. `ScoreRequest` extends `ApplicantInput` with `product`; `ScoreResponse` extends `DecisionResult` with `likelihood_band`, `likelihood`, `request_id` and `audit_id`. Middleware assigns or keeps a safe `X-Request-ID`, logs one JSON line per request (request id, method, route template, status, duration, role; no personal data or client address) and turns any unhandled error into a 500 without details. Every error is `{"error": {code, message, request_id, details?}}`; validation details name fields but never echo input. Accounts that must change their password get 403 except on `/v1/auth/me`. CORS is added only when `LOANLENS_API_CORS_ORIGINS` is set. `/ready` checks the database (`SELECT 1` after migrations) and the model (hash-verified load). Startup refuses to run without `LOANLENS_JWT_SECRET` in production or hosted mode and runs the one-time manager bootstrap.
 - **Rate limits:** an in-memory sliding window on `/v1/auth/login` and `/v1/auth/register`, keyed by client address (default 10 per 60 s) and by a SHA-256 of the lower-cased email (default 5 per 60 s); 429 with `Retry-After`. Refused attempts are not counted, old keys are purged, and the counters reset when the process restarts.
 
@@ -406,8 +423,9 @@ The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), wi
 - **No default credentials:** the old shared manager password and `LOANLENS_MANAGER_PASSWORD` are gone. Passwords are argon2id hashes; passwords, tokens and email addresses are never logged or written to `auth_events`, and a test checks this.
 - **Decisions are audited:** each decision's model inputs, result and versions are stored append-only with a random account reference, never an email or name; applicants see only their own records. What is stored per account is listed in section 12.
 - **Bulk Check** also stores anonymised batch summaries, in a local SQLite file or the database named by `DATABASE_URL` (ORM or parameterised statements only; the URL is never logged or shown).
+- **Batch files:** uploads and results live in a private, gitignored directory under random names; no path from a client is ever opened or served. Uploads are deleted when the job ends; results and error files (which can contain applicant IDs from the upload) after `LOANLENS_JOB_RETENTION_DAYS` (default 7, `python -m loanlens.worker --cleanup`, also run when a worker starts).
 - **Configuration** comes from environment variables (`.env.example` lists the names only); inputs are validated with Pydantic, and database access uses the ORM or parameterised statements only.
-- **Gitignored:** `data/raw/` and `data/processed/` (third-party data), archived model versions (the registry and the active 0.4 MB artifact are committed), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
+- **Gitignored:** `data/raw/` and `data/processed/` (third-party data), `data/jobs/` (batch files) and `data/benchmarks/` (generated synthetic files), archived model versions (the registry and the active 0.4 MB artifact are committed), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
 
 ## 15. Assumptions, placeholders and future work
 
@@ -418,7 +436,7 @@ Every value below is illustrative; a lender would replace it with its own credit
 - the home profile (term 5-30 years, 6.0x income, 2.0x assets, 8.5%) and the vehicle profile (term 1-7 years, 1.5x income, 1.0x assets, 11%);
 - approval threshold 0.5; borderline band 40-60%; borderline CIBIL margin ±25 points;
 - likelihood bands 85 / 65 / 35 / 15%;
-- batch limit 50,000 rows; negative assets set to 0;
+- batch job limits: 1,000,000 rows and 200 MB per file, 20,000-row chunks, 7-day retention of result files (all configurable); negative assets set to 0;
 - account settings: lockout after 5 failed sign-ins for 15 minutes, 60-minute sessions and the 10-character minimum password length (the first three are configurable);
 - API limits: at most 1,000 applicants per batch request, and 10 sign-in or registration attempts per client address and 5 per account in 60 seconds (all configurable).
 

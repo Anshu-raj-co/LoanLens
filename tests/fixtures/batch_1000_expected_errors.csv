@@ -1,0 +1,21 @@
+row,applicant_id,problem
+150,APP-00149,CIBIL score must be between 300 and 900.
+153,APP-00152,Loan amount must be a number.
+168,APP-00167,Loan term (years) must be at least 1.
+230,APP-00229,Loan term (years) is missing.
+238,APP-00237,Bank assets value must be a number.
+249,APP-00248,Annual income must be a number.
+324,APP-00323,CIBIL score must be a number.
+334,APP-00333,Annual income must be greater than 0.
+335,APP-00334,Residential assets value must be at least 0.
+366,APP-00365,Luxury assets value must be at least 0.
+370,APP-00369,Loan amount must be greater than 0.
+432,APP-00431,Commercial assets value is missing.
+499,APP-00498,CIBIL score must be a whole number.
+546,APP-00545,Loan term (years) must be a whole number.
+575,APP-00574,Loan term (years) must be at most 40.
+628,APP-00627,CIBIL score must be between 300 and 900.
+678,APP-00677,CIBIL score is missing.
+784,APP-00783,Loan amount must be a finite number.
+829,APP-00828,Annual income must be greater than 0.
+932,APP-00931,Annual income is missing.

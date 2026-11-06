@@ -20,16 +20,16 @@ record cannot be written, the decision is not returned either (the error is rais
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 import pandas as pd
 
-from loanlens import audit, batch, cleaning, explain, storage
+from loanlens import audit, cleaning, explain, jobs, storage
 from loanlens import model as model_mod
 from loanlens.audit import API, BATCH, UI, AuditFilters
 from loanlens.auth import APPLICANT, MANAGER, Principal, verify_principal
@@ -43,7 +43,6 @@ __all__ = [
     "UI",
     "AuditFilters",
     "AuditPage",
-    "BatchRun",
     "InvalidRecords",
     "Scored",
     "ScoredMany",
@@ -57,7 +56,11 @@ __all__ = [
     "recent_batch_summaries",
     "save_batch_summary",
     "score_applicant",
-    "score_batch_upload",
+    "submit_batch_job",
+    "list_batch_jobs",
+    "get_batch_job",
+    "cancel_batch_job",
+    "batch_job_file",
     "score_records",
     "training_data",
 ]
@@ -89,15 +92,6 @@ class ScoredMany:
 
     results: list[DecisionResult]
     audit_ids: list[str]
-    batch_id: str
-    request_id: str
-
-
-@dataclass(frozen=True)
-class BatchRun:
-    """An audited Bulk Check upload."""
-
-    results: pd.DataFrame
     batch_id: str
     request_id: str
 
@@ -236,61 +230,123 @@ def score_records(
     )  # fmt: skip
 
 
-def score_batch_upload(
+# ---- Batch jobs (managers) -------------------------------------------------------------------
+
+
+def _job_settings() -> jobs.JobSettings:
+    return jobs.load_job_settings()
+
+
+def submit_batch_job(
     principal: Principal | None,
-    parsed: batch.ParsedBatch,
-    policy: Policy | None = None,
+    stream: BinaryIO,
+    filename: str,
     *,
-    artifact: dict[str, Any] | None = None,
+    product: str | None = None,
     include_positive: bool = False,
-    progress: Callable[[float], None] | None = None,
-) -> BatchRun:
-    """Score a parsed Bulk Check upload (managers only) and audit every row in chunks.
+) -> jobs.JobView:
+    """Store an uploaded CSV or Parquet file and queue it as a background job (managers).
+
+    The manager is verified now and their ``audit_ref`` is stored on the job; the worker
+    uses that reference for the audit records, so a job does not depend on the session
+    token (which expires) and can run for longer than a session.
 
     Raises:
         AuthorisationError: no valid principal, or not a manager.
-        DatabaseError: the audit records could not be written (results are not returned).
+        UnknownProfileError: ``product`` names no loan type.
+        UploadTooLarge, BatchError: the upload is too large or empty.
+        DatabaseError: the job could not be recorded.
     """
     who = verify_principal(principal, MANAGER)
-    artifact = artifact or model_mod.load_artifact()
-    results = batch.score(
-        parsed, policy, artifact, include_positive=include_positive, progress=progress
-    )
-    rid, batch_id = new_request_id(), audit.new_id()
-    model_version = str(artifact.get("version", "unknown"))
-    inputs = parsed.values[list(INPUT_COLUMNS)].to_dict("records")
-    profiles: dict[str, Policy] = {}
-    rows = []
-    for values, status, probability, borderline, product, codes in zip(
-        inputs,
-        results["status"],
-        results["probability"],
-        results["borderline"],
-        results[batch.PRODUCT_COLUMN],
-        results["reason_codes"],
-        strict=True,
-    ):
-        prof = profiles.get(product) or profiles.setdefault(product, load_profile(product))
-        rows.append(
-            audit.build_row(
-                inputs=values,
-                status=status,
-                probability=float(probability),
-                borderline=bool(borderline),
-                reason_codes=str(codes or "").split(";"),
-                profile=prof.profile,
-                policy_version=prof.version,
-                policy_hash=prof.content_hash,
-                model_version=model_version,
-                channel=BATCH,
-                request_id=rid,
-                batch_id=batch_id,
-                user_ref=who.audit_ref,
-                actor_role=who.role,
-            )  # fmt: skip
+    profile = load_profile(normalise_profile(product)).profile
+    settings = _job_settings()
+    name, fmt = jobs.save_upload(settings, stream)
+    try:
+        return jobs.create_job(
+            _url(), created_by=who.audit_ref, filename=filename, profile=profile,
+            include_positive=bool(include_positive), input_format=fmt, upload_path=name,
+        )  # fmt: skip
+    except Exception:
+        jobs.remove_file(settings, name)
+        raise
+
+
+def list_batch_jobs(principal: Principal | None, limit: int = 50) -> list[jobs.JobView]:
+    """Recent batch jobs, newest first. Any manager may see every manager's jobs."""
+    verify_principal(principal, MANAGER)
+    return jobs.list_jobs(_url(), int(np.clip(limit, 1, MAX_PAGE_SIZE)))
+
+
+def get_batch_job(principal: Principal | None, job_id: str) -> jobs.JobView:
+    """One batch job (managers).
+
+    Raises:
+        JobNotFound: no such job.
+    """
+    verify_principal(principal, MANAGER)
+    return jobs.get_job(_url(), job_id)
+
+
+def cancel_batch_job(principal: Principal | None, job_id: str) -> jobs.JobView:
+    """Cancel a queued job, or stop a running one after its current chunk (managers).
+
+    Rows already scored in a running job stay in the audit trail (it is append-only).
+    """
+    verify_principal(principal, MANAGER)
+    jobs.request_cancel(_url(), job_id)
+    return jobs.get_job(_url(), job_id)
+
+
+JOB_FILES = {"result": "result_path", "result_csv": "result_csv_path", "errors": "errors_path"}
+
+
+def batch_job_file(principal: Principal | None, job_id: str, kind: str) -> Path:
+    """The stored results (Parquet or CSV) or errors file of a completed job (managers).
+
+    The path comes from the job record, never from the request.
+
+    Raises:
+        JobNotFound: no such job.
+        JobFileUnavailable: the job has not completed, its files expired, or ``kind`` is
+            unknown.
+    """
+    verify_principal(principal, MANAGER)
+    if kind not in JOB_FILES:
+        raise jobs.JobFileUnavailable("Unknown file type.")
+    row = jobs.get_row(_url(), job_id)
+    if row is None:
+        raise jobs.JobNotFound()
+    if row.status == jobs.EXPIRED:
+        raise jobs.JobFileUnavailable(
+            "The files of this job were deleted after the retention period."
         )
-    audit.write(_url(policy), rows)
-    return BatchRun(results=results, batch_id=batch_id, request_id=rid)
+    if row.status != jobs.COMPLETED:
+        raise jobs.JobFileUnavailable("The files are available once the job has completed.")
+    path = jobs.job_file(_job_settings(), getattr(row, JOB_FILES[kind]))
+    if not path.exists():
+        raise jobs.JobFileUnavailable("This file is no longer available.")
+    return path
+
+
+def batch_job_preview(
+    principal: Principal | None, job_id: str, kind: str = "result", rows: int = 1000
+) -> pd.DataFrame:
+    """The first ``rows`` rows of a completed job's results or errors file (managers).
+
+    Only that many rows are read, however large the file is.
+    """
+    rows = int(np.clip(rows, 1, 10_000))
+    if kind == "errors":
+        path = batch_job_file(principal, job_id, "errors")
+        return pd.read_csv(path, nrows=rows, dtype={"applicant_id": str}, keep_default_na=False)
+    import pyarrow.parquet as pq
+
+    path = batch_job_file(principal, job_id, "result")
+    parquet = pq.ParquetFile(path)
+    first = next(parquet.iter_batches(batch_size=rows), None)
+    if first is None:
+        return parquet.schema_arrow.empty_table().to_pandas()
+    return first.to_pandas()
 
 
 # ---- Batch summaries and analytics (managers) ------------------------------------------------

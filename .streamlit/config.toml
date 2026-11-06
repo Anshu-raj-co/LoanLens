@@ -4,6 +4,9 @@ showErrorDetails = false
 
 [server]
 headless = true
+# Largest Bulk Check upload in MB (CSV or Parquet). The API limit is
+# LOANLENS_JOB_MAX_UPLOAD_MB (default 200 as well).
+maxUploadSize = 200
 
 [browser]
 gatherUsageStats = false

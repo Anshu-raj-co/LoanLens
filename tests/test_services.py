@@ -6,13 +6,14 @@ applicant is refused where only managers are allowed, and the allowed roles succ
 
 from __future__ import annotations
 
+import io
 import uuid
 from pathlib import Path
 
 import pytest
 from app_support import TEST_PASSWORD, new_session
 
-from loanlens import auth, batch, services
+from loanlens import auth, batch, services, worker
 from loanlens.auth import service as svc
 from loanlens.examples import EXAMPLES
 from loanlens.schema import ValidationFailure
@@ -23,6 +24,24 @@ APP_PAGES = Path(__file__).resolve().parents[1] / "app"
 
 def _parsed():
     return batch.parse_upload(batch.template_csv())
+
+
+def _submit(principal):
+    return services.submit_batch_job(principal, io.BytesIO(batch.template_csv()), "t.csv")
+
+
+def _job_id(principal, artifact, run: bool = False) -> str:
+    """A job id. For a real manager the job exists (and has run when ``run``); otherwise a
+    random id, because the role check must refuse the call before the id is looked up."""
+    if principal is None or not getattr(principal, "is_manager", False):
+        return str(uuid.uuid4())
+    try:
+        job = _submit(principal)
+    except auth.AuthorisationError:
+        return str(uuid.uuid4())
+    if run:
+        worker.work_once(artifact=artifact)
+    return job.id
 
 
 def _save_summary(principal):
@@ -37,8 +56,14 @@ def _save_summary(principal):
 CALLS = {
     "score_applicant": (lambda p, a: services.score_applicant(p, STRONG, artifact=a), "any"),
     "score_records": (lambda p, a: services.score_records(p, [STRONG], artifact=a), "manager"),
-    "score_batch_upload": (
-        lambda p, a: services.score_batch_upload(p, _parsed(), artifact=a), "manager"),
+    "submit_batch_job": (lambda p, a: _submit(p), "manager"),
+    "list_batch_jobs": (lambda p, a: services.list_batch_jobs(p), "manager"),
+    "get_batch_job": (lambda p, a: services.get_batch_job(p, _job_id(p, a)), "manager"),
+    "cancel_batch_job": (lambda p, a: services.cancel_batch_job(p, _job_id(p, a)), "manager"),
+    "batch_job_file": (
+        lambda p, a: services.batch_job_file(p, _job_id(p, a, run=True), "result"), "manager"),
+    "batch_job_preview": (
+        lambda p, a: services.batch_job_preview(p, _job_id(p, a, run=True)), "manager"),
     "save_batch_summary": (lambda p, a: _save_summary(p), "manager"),
     "latest_batch_summary": (lambda p, a: services.latest_batch_summary(p), "manager"),
     "recent_batch_summaries": (lambda p, a: services.recent_batch_summaries(p), "manager"),

@@ -23,6 +23,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -105,6 +106,72 @@ class AuthEvent(Base):
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(64))
+
+
+JOB_STATUSES = ("queued", "running", "completed", "failed", "cancelled", "expired")
+
+
+class BatchJob(Base):
+    """One background Bulk Check job (Alembic revision ``0004_batch_jobs``).
+
+    ``upload_path``, ``result_path``, ``result_csv_path`` and ``errors_path`` are random file
+    names inside the private jobs directory, never a path from the client. ``filename`` is
+    the client's file name for display only. ``created_by`` is the submitting manager's
+    ``audit_ref``; the worker uses it for the audit rows, so it needs no session token.
+    """
+
+    __tablename__ = "batch_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
+            name="ck_batch_jobs_status",
+        ),
+        Index("ix_batch_jobs_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    profile: Mapped[str] = mapped_column(String(32), nullable=False)
+    include_positive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    input_format: Mapped[str] = mapped_column(String(8), nullable=False)
+    upload_path: Mapped[str | None] = mapped_column(String(64))
+    rows_total: Mapped[int | None] = mapped_column(Integer)
+    rows_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rows_audited: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    approved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rejected: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    borderline: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    result_path: Mapped[str | None] = mapped_column(String(64))
+    result_csv_path: Mapped[str | None] = mapped_column(String(64))
+    errors_path: Mapped[str | None] = mapped_column(String(64))
+    audit_batch_id: Mapped[str | None] = mapped_column(String(36))
+    audited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    summary: Mapped[str | None] = mapped_column(Text)
+    worker_id: Mapped[str | None] = mapped_column(String(64))
+    claim_token: Mapped[str | None] = mapped_column(String(36), index=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class BatchWorker(Base):
+    """A running worker's heartbeat (external process or embedded thread)."""
+
+    __tablename__ = "batch_workers"
+    __table_args__ = (
+        CheckConstraint("kind IN ('external', 'embedded')", name="ck_batch_workers_kind"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class DecisionAudit(Base):

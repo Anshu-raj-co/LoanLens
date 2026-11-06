@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import secrets
 import uuid
 
@@ -63,4 +64,34 @@ def open_page(page: str, role: str | None = "auto", session: auth.SignedIn | Non
         session = new_session(role)
     if session is not None:
         at.session_state[TOKEN_KEY] = session.token
+    return at
+
+
+BULK_PAGE = "pages/2_Bulk_Check.py"
+
+
+class FakeUpload(io.BytesIO):
+    """Stands in for Streamlit's UploadedFile (bytes plus a client file name)."""
+
+    def __init__(self, data: bytes, name: str = "upload.csv") -> None:
+        super().__init__(data)
+        self.name = name
+
+    def getvalue(self) -> bytes:
+        return super().getvalue()
+
+
+def submit_bulk(monkeypatch, data: bytes, *, session=None, name: str = "upload.csv",
+                run_job: bool = True):  # fmt: skip
+    """Open Bulk Check, submit ``data`` as a job, optionally run it, and rerun the page."""
+    import streamlit as st
+
+    from loanlens import worker
+
+    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: FakeUpload(data, name))
+    at = open_page(BULK_PAGE, session=session).run()
+    at = next(b for b in at.button if b.label == "Submit job").click().run()
+    if run_job:
+        worker.work_once()
+        at = at.run()
     return at

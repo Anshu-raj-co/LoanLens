@@ -12,9 +12,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from app_support import open_page
+from app_support import open_page, submit_bulk
 
-from loanlens import storage
 from loanlens.config import PROJECT_ROOT
 from loanlens.examples import EXAMPLES
 
@@ -137,16 +136,8 @@ def test_no_emoji_in_customer_results(app_path, artifact, index) -> None:
     _assert_clean(at, title)
 
 
-def test_no_emoji_on_bulk_check_with_fixture(app_path, artifact, monkeypatch, tmp_path) -> None:
-    import streamlit as st
-
-    class _Upload:
-        def getvalue(self) -> bytes:
-            return FIXTURE.read_bytes()
-
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload())
-    monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "page.sqlite")
-    at = _app(app_path, "pages/2_Bulk_Check.py").run()
+def test_no_emoji_on_bulk_check_with_fixture(app_path, artifact, monkeypatch) -> None:
+    at = submit_bulk(monkeypatch, FIXTURE.read_bytes())
     labels = [m.label for m in at.metric]
     assert {"Approved", "Rejected", "Borderline"} <= set(labels)
     _assert_clean(at, "Bulk Check with fixture")

@@ -11,12 +11,14 @@ skipped; they never stop the rest of the batch.
 
 from __future__ import annotations
 
+import codecs
 import csv
 import io
 import math
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import annotated_types
@@ -326,12 +328,16 @@ def _product_errors(raw: pd.Series, default: str) -> tuple[pd.Series, pd.Series]
     return products, msg
 
 
-def validate_rows(frame: pd.DataFrame, default_product: str | None = None) -> ParsedBatch:
+def validate_rows(
+    frame: pd.DataFrame, default_product: str | None = None, first_row: int = 2
+) -> ParsedBatch:
     """Validate every row with the same limits as customer mode (vectorised).
 
     Invalid rows are reported (spreadsheet row number, ID if any, every problem in the row)
     and left out of ``values``. An optional ``product`` column picks each row's loan type
     (blank means ``default_product``, normally ``personal``); an unknown value is a row error.
+    ``first_row`` is the row number of the frame's first row (2 for a whole file, because the
+    header is row 1; later chunks of a streamed file continue the numbering).
     """
     default_product = default_product or load_policy().profile
     n = len(frame)
@@ -353,7 +359,7 @@ def validate_rows(frame: pd.DataFrame, default_product: str | None = None) -> Pa
         has = msg != ""
         problems[has] = np.where(problems[has] == "", msg[has], problems[has] + " " + msg[has])
     valid = (problems == "").to_numpy()
-    rows = np.arange(n) + 2  # header is spreadsheet row 1
+    rows = np.arange(n) + first_row  # header is spreadsheet row 1
     errors = [
         RowError(row=int(rows[i]), applicant_id=str(ids.iloc[i]), message=str(problems.iloc[i]))
         for i in np.flatnonzero(~valid)
@@ -379,6 +385,181 @@ def parse_upload(data: bytes, policy: Policy | None = None) -> ParsedBatch:
     parsed = validate_rows(mapped, policy.profile)
     parsed.renamed, parsed.ignored = renamed, ignored
     return parsed
+
+
+# ---- Streaming (large files, read in chunks) -----------------------------------------------
+
+CSV_FORMAT, PARQUET_FORMAT = "csv", "parquet"
+PARQUET_MAGIC = b"PAR1"
+_SNIFF_BYTES = 1 << 16
+_BLOCK_BYTES = 1 << 20
+
+
+@dataclass
+class Chunk:
+    """One block of a streamed file: canonical text columns and its first row number."""
+
+    frame: pd.DataFrame  # recognised columns only, canonical names, text values
+    first_row: int  # spreadsheet row number of the frame's first row (header = row 1)
+
+
+def detect_format(path: Path) -> str:
+    """``parquet`` when the file starts with the Parquet magic bytes, else ``csv``."""
+    with open(path, "rb") as fh:
+        return PARQUET_FORMAT if fh.read(4) == PARQUET_MAGIC else CSV_FORMAT
+
+
+def detect_encoding(path: Path) -> str:
+    """``utf-8-sig`` if the whole file is valid UTF-8, else ``cp1252`` (read in blocks).
+
+    Raises:
+        BatchError: the file is empty or is not text.
+    """
+    with open(path, "rb") as fh:
+        head = fh.read(_SNIFF_BYTES)
+        if not head.strip():
+            raise BatchError("The file is empty. Please upload a CSV with a header row and data.")
+        if b"\x00" in head:
+            raise BatchError("The file could not be read as text. Please upload a CSV file.")
+        decoder = codecs.getincrementaldecoder("utf-8")()
+        fh.seek(0)
+        try:
+            while block := fh.read(_BLOCK_BYTES):
+                decoder.decode(block)
+            decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            return "cp1252"
+    return "utf-8-sig"
+
+
+def estimate_rows(path: Path, fmt: str | None = None) -> int:
+    """Number of data rows: exact for Parquet; for CSV the number of lines after the header.
+
+    The CSV count is for progress and the row limit; blank lines are counted too.
+    """
+    fmt = fmt or detect_format(path)
+    if fmt == PARQUET_FORMAT:
+        return int(_parquet_file(path).metadata.num_rows)
+    lines, last = 0, b""
+    with open(path, "rb") as fh:
+        while block := fh.read(_BLOCK_BYTES):
+            lines += block.count(b"\n")
+            last = block[-1:]
+    if last and last != b"\n":
+        lines += 1
+    return max(0, lines - 1)
+
+
+def _parquet_file(path: Path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    try:
+        return pq.ParquetFile(path)
+    except (pa.ArrowException, OSError) as exc:
+        raise BatchError("The file could not be read as a Parquet file.") from exc
+
+
+def _as_text(series: pd.Series) -> pd.Series:
+    """A Parquet column as text, the way it would appear in a CSV (missing -> blank)."""
+    if pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        return series.astype("string").fillna("").astype(object)
+    return series.where(series.notna(), "").astype(str)
+
+
+def _drop_blank_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    blank = (frame.apply(lambda c: c.astype(str).str.strip()) == "").all(axis=1)
+    return frame.loc[~blank]
+
+
+class ChunkReader:
+    """Read a CSV or Parquet file in chunks of ``chunk_size`` rows, never all at once.
+
+    The header is checked first (:func:`map_columns`), so a file with missing columns fails
+    before any row is scored. ``renamed`` and ``ignored`` describe the header. Rows that are
+    blank in every column are skipped and not numbered, exactly as for a small upload.
+
+    Raises (while iterating):
+        BatchError: unreadable file, missing columns, or a malformed line.
+    """
+
+    def __init__(self, path: Path, chunk_size: int, fmt: str | None = None) -> None:
+        self.path = Path(path)
+        self.chunk_size = int(chunk_size)
+        self.format = fmt or detect_format(self.path)
+        self.renamed: dict[str, str] = {}
+        self.ignored: list[str] = []
+        self._mapping: dict[str, str] = {}
+        if self.format == PARQUET_FORMAT:
+            self._parquet = _parquet_file(self.path)
+            self._set_header(list(self._parquet.schema_arrow.names))
+        else:
+            self._encoding = detect_encoding(self.path)
+            self._sep = detect_delimiter(self._header_line())
+            try:
+                header = pd.read_csv(
+                    self.path, sep=self._sep, nrows=0, encoding=self._encoding,
+                    skipinitialspace=True, dtype=str,
+                )  # fmt: skip
+            except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError,
+                    ValueError) as exc:  # fmt: skip
+                raise BatchError(
+                    "The file could not be read as a CSV table. Check that every row has the "
+                    "same number of columns, separated by commas."
+                ) from exc
+            self._set_header(list(header.columns))
+
+    def _header_line(self) -> str:
+        with open(self.path, encoding=self._encoding, errors="replace") as fh:
+            for line in fh:
+                if line.strip():
+                    return line
+        raise BatchError("The file is empty. Please upload a CSV with a header row and data.")
+
+    def _set_header(self, columns: list[str]) -> None:
+        mapped, self.renamed, self.ignored = map_columns(pd.DataFrame(columns=columns))
+        self._mapping = {orig: canon for orig, canon in zip(
+            [c for c in columns if canonical_name(c) in set(mapped.columns)],
+            mapped.columns, strict=True,
+        )}  # fmt: skip
+
+    def _raw_chunks(self) -> Iterator[pd.DataFrame]:
+        if self.format == PARQUET_FORMAT:
+            import pyarrow as pa
+
+            try:
+                for rb in self._parquet.iter_batches(
+                    batch_size=self.chunk_size, columns=list(self._mapping)
+                ):
+                    yield rb.to_pandas().apply(_as_text)
+            except pa.ArrowException as exc:
+                raise BatchError("The file could not be read as a Parquet file.") from exc
+            return
+        reader = pd.read_csv(
+            self.path, sep=self._sep, dtype=str, keep_default_na=False, skip_blank_lines=True,
+            skipinitialspace=True, quoting=csv.QUOTE_MINIMAL, encoding=self._encoding,
+            chunksize=self.chunk_size,
+        )  # fmt: skip
+        try:
+            with reader:
+                for part in reader:  # all columns are read so malformed lines are caught
+                    yield part[list(self._mapping)]
+        except (pd.errors.ParserError, csv.Error, UnicodeDecodeError, ValueError) as exc:
+            raise BatchError(
+                "Part of the file could not be read as a CSV table. Check that every row has "
+                "the same number of columns, separated by commas."
+            ) from exc
+
+    def __iter__(self) -> Iterator[Chunk]:
+        next_row = 2  # header is row 1
+        for raw in self._raw_chunks():
+            frame = _drop_blank_rows(raw.rename(columns=self._mapping))
+            if frame.empty:
+                continue
+            yield Chunk(frame=frame.reset_index(drop=True), first_row=next_row)
+            next_row += len(frame)
 
 
 # ---- Scoring -------------------------------------------------------------------------------

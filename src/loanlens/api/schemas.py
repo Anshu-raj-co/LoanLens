@@ -131,3 +131,40 @@ class ErrorResponse(BaseModel):
     """Every error has this shape."""
 
     error: ErrorDetail
+
+
+class BatchJobOut(BaseModel):
+    """A background batch job. File locations are never exposed; use the download links."""
+
+    id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled", "expired"]
+    filename: str = Field(description="The uploaded file's name (display only)")
+    profile: str
+    include_positive: bool
+    input_format: Literal["csv", "parquet"]
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    rows_total: int | None = Field(description="Data rows (estimated until the job finishes)")
+    rows_processed: int
+    rows_skipped: int
+    rows_audited: int
+    approved: int
+    rejected: int
+    borderline: int
+    progress: float = Field(ge=0, le=1)
+    error_message: str | None
+    audit_batch_id: str | None
+    audited: bool
+    cancel_requested: bool
+    summary: dict[str, Any] | None
+    result_url: str | None = None
+    result_csv_url: str | None = None
+    errors_url: str | None = None
+
+
+class BatchJobList(BaseModel):
+    """Recent batch jobs, newest first."""
+
+    count: int
+    items: list[BatchJobOut]

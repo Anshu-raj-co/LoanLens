@@ -132,14 +132,14 @@ Open **My History** to see every check you have made while signed in, newest fir
 
 Manager accounts are created by an administrator (`python -m loanlens.auth create-manager --email <email>`, which asks for the password at a hidden prompt) or by another manager on the **Users** page. A new manager must change the temporary password at first sign-in.
 
-### Preparing the CSV
+### Preparing the file
 
-Click **Download CSV template** for a 3-row example. One applicant per row, **up to 50,000 rows** per file.
+Click **Download CSV template** for a 3-row example. One applicant per row, in a **CSV or Parquet** file of **up to 1,000,000 rows and 200 MB** (both limits can be changed by the administrator). In a Parquet file the column names work the same way; numbers may be stored as numbers or text, and an empty value counts as a blank cell.
 
 | Column | Required | Description | Allowed values |
 |---|---|---|---|
 | `applicant_id` | optional | Your own reference, copied to the results. Not stored by LoanLens. | any text |
-| `product` | optional | Loan type for this row. Blank means personal. Any other value is reported as a row problem and the row is skipped. Also recognised as *Loan type*. | `personal`, `home` or `vehicle` (any case) |
+| `product` | optional | Loan type for this row. Blank means the loan type chosen when you submit (personal by default). Any other value is reported as a row problem and the row is skipped. Also recognised as *Loan type*. | `personal`, `home` or `vehicle` (any case) |
 | `cibil_score` | yes | CIBIL credit score | whole number, 300 to 900 |
 | `income_annum` | yes | Annual income in rupees | more than 0 |
 | `loan_amount` | yes | Requested loan in rupees | more than 0 |
@@ -163,16 +163,23 @@ Tips:
 - If a required column is missing, the page names exactly which ones.
 - Amounts may be written as `1250000`, `12,50,000` or `Rs 12,50,000`. Comma, semicolon, tab and pipe separators all work.
 - A **blank asset cell is an error**, not 0: write 0 if the applicant has none.
-- Each row is checked under its own loan type's limits (see Part 1, "Choose the loan type"). Without a `product` column every row is a personal loan.
+- Each row is checked under its own loan type's limits (see Part 1, "Choose the loan type"). Without a `product` column every row uses the loan type you choose on the page.
 - Do not include names, phone numbers or other personal details; they are not needed.
 
-### Running a check
+### Running a large batch
 
-1. Upload the file. Tick *Also list positive factors* only if you need them (slower).
-2. **Skipped rows** (amber panel): rows with problems are not scored. Open the list to see each one with its spreadsheet row number (header = row 1) and every problem in it. Fix them and upload again if needed. The rest of the file is still scored.
-3. **Summary cards:** total scored (blue), approved (green), rejected (red), borderline (amber), skipped rows (grey) and approval rate, plus the top rejection reasons.
-4. **Results table:** filter by status, borderline, or search for an ID or a reason. Status cells are coloured and always show the word "Approved" or "Rejected". (For more than 5,000 visible rows, colours are switched off for speed; the words stay.)
-5. **Download all results (CSV):** plain data, one row per scored applicant.
+Bulk Check runs every file as a **background job**, so a large file does not block the page and you can leave and come back.
+
+1. Under **2. Upload and submit**, choose the file, pick the **Loan type** for rows without a `product` value, tick *Also list positive factors* only if you need them (slower), and click **Submit job**.
+2. **Progress:** a bar shows how many rows have been read, with the running approved, rejected and skipped counts. It refreshes itself every two seconds. **Cancel this job** stops it after the part it is working on (a file is processed 20,000 rows at a time).
+3. **Batch jobs:** the table lists recent jobs of all managers (every manager can see, download and cancel every job) with their status (Queued, Running, Completed, Failed, Cancelled or Expired), file name, loan type, counts, times and any note. Choose a job under **Show a job**.
+4. For a completed job you see the **summary cards** (total scored in blue, approved in green, rejected in red, borderline in amber, skipped rows in grey, approval rate) and the top rejection reasons.
+5. **Downloads:** **Download results (CSV)**, **Download results (Parquet)** and **Download skipped rows (CSV)** (row number, your ID and every problem in the row; the header is row 1). For large files, click **Prepare downloads** first. Files above 200 MB are not offered in the browser; download them through the API (below).
+6. **Preview:** the first 1,000 results with coloured Approved and Rejected cells (always with the word), and the first skipped rows.
+
+Where the jobs run: a separate worker process (`python -m loanlens.worker`, started by the administrator) or, when none is running, a worker inside the app itself. If the app restarts during a job, that job stops and is marked **Failed** within about five minutes; submit the file again. If no worker can run, the page says so and jobs wait in the queue.
+
+If a file cannot be read at all (empty, not a table, required columns missing, too many rows), the job fails with a plain message and nothing is scored.
 
 ### Result columns
 
@@ -192,11 +199,15 @@ Tips:
 
 ### What is stored
 
-Every scored row is recorded in the **decision audit trail**: its eight model input fields, the result, the loan type and the policy and model versions, under your account's random reference. Your `applicant_id` values and any names are not stored there. If the audit records cannot be written, the results are not shown. In addition, an **anonymised summary** of each batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved and appears on the **Analytics** page. By default it goes to the local file `data/loanlens.sqlite`; an administrator can point LoanLens at another database (for example PostgreSQL) with the `DATABASE_URL` setting. No names, IDs or applicant values are stored unless an administrator sets `storage.store_applicant_ids: true` in `config/policies/personal.yaml`. If only the summary cannot be saved, the results still appear and a short note says so.
+Every scored row is recorded in the **decision audit trail**: its eight model input fields, the result, the loan type and the policy and model versions, under your account's random reference and the job's batch id. Your `applicant_id` values and any names are not stored there. Audit records are written before the results of each part of the file are saved; if they cannot be written, the job stops and fails. If a job fails or is cancelled part-way, the audit records already written stay (they can never be deleted); the job's note gives their number and batch id, and uploading the file again creates a new batch with a new batch id.
+
+**Your files:** the uploaded file is kept in a private folder on the server under a random name and is deleted when the job ends. The results and skipped-rows files contain your `applicant_id` values, so they are deleted automatically **7 days** after the job finished (the administrator can change this with `LOANLENS_JOB_RETENTION_DAYS`); the job then shows **Expired**. Download what you need before then.
+
+An **anonymised summary** of each completed batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved and appears on the **Analytics** page. By default it goes to the local file `data/loanlens.sqlite`; an administrator can point LoanLens at another database (for example PostgreSQL) with the `DATABASE_URL` setting. No names, IDs or applicant values are stored there unless an administrator sets `storage.store_applicant_ids: true` in `config/policies/personal.yaml`.
 
 ### Speed and limits
 
-About 0.7 seconds per 1,000 rows; a 50,000-row file takes roughly 16-32 seconds. Files above 50,000 rows are refused with a message asking you to split them.
+Measured on a laptop on 2026-11-06 (details in `reports/performance.md`): a 100,000-row file took about 1.2 to 1.3 minutes and a 1,000,000-row file about 11 to 14 minutes, with every row recorded in the audit trail. Your speed depends on the computer and the database. A file of more than 1,000,000 rows or 200 MB is refused with a message asking you to split it.
 
 ### The Audit page
 
@@ -214,7 +225,7 @@ Managers see every account: email, role, status (Active, Locked, Deactivated, or
 
 ### Using the REST API
 
-Other systems can use the same checks through the REST API (`uvicorn loanlens.api.app:app`, docs at `/docs`). Sign in with `POST /v1/auth/login` and send the token as `Authorization: Bearer <token>`. Managers can score up to 1,000 applicants per request with `POST /v1/score/batch` and read the audit trail with `GET /v1/audit`. Examples are in README.md.
+Other systems can use the same checks through the REST API (`uvicorn loanlens.api.app:app`, docs at `/docs`). Sign in with `POST /v1/auth/login` and send the token as `Authorization: Bearer <token>`. Managers can score up to 1,000 applicants per request with `POST /v1/score/batch`, upload a whole file as a job with `POST /v1/batches`, follow it with `GET /v1/batches/{id}`, download the results with `GET /v1/batches/{id}/result` (Parquet, or `?format=csv`) and the skipped rows with `GET /v1/batches/{id}/errors`, and read the audit trail with `GET /v1/audit`. Examples are in README.md.
 
 ### Remember
 

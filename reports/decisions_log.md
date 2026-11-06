@@ -706,6 +706,57 @@ Each entry records what was found, what was chosen, and why.
 - **Tests:** `test_ensure_schema_leaves_logging_alone` and `test_caplog_works_after_ensure_schema` (SQLite and PostgreSQL) guard the contract for the app path; they pass on the old code too, because that path was already clean. `test_auth_logging_tests_pass_in_either_order` runs the CLI test and the three auth tests in a subprocess in both orders (fast, instead of rerunning all three files inside the suite); the three full files were also run manually in both orders. The probe warning uses `loanlens.auth.settings`, not `loanlens.api`, because the API logger has its own JSON handler and `propagate=False` by design, so `caplog` never sees it.
 - **Result:** all 9 PostgreSQL tests ran and passed against PostgreSQL 16.15 (disposable database, port 5433) on 2026-11-06; CLAUDE.md, README, PROJECT_EXPLAINED and progress updated accordingly.
 
+## Milestone 4: batch jobs, benchmarks, load test
+
+### D-092 Golden file before changing the batch path
+- **Found:** the task requires the new pipeline to give decisions identical to the previous batch path.
+- **Chosen:** before any change, the Milestone 3 path (`parse_upload` + `score`) was run on `tests/fixtures/batch_1000.csv` and its output saved as `tests/fixtures/batch_1000_expected.csv` (980 rows, 547 Approved, 433 Rejected) and `batch_1000_expected_errors.csv` (20 rows). `tests/test_jobs.py` compares every column of the new pipeline's Parquet and CSV output with it at chunk sizes 37, 999, 1,000, 1,001 and 20,000 (probabilities within 1e-6; the largest difference seen is about 2e-16, from the CSV float round trip).
+
+### D-093 Chunked pipeline (`src/loanlens/pipeline.py`, `batch.ChunkReader`)
+- **Reading:** CSV through `pandas.read_csv(chunksize=...)` with the same options as before (delimiter detected from the header line, text values, blank lines skipped); Parquet through `pyarrow.parquet.ParquetFile.iter_batches` with only the recognised columns, converted to text so the same validation applies (a missing Parquet value becomes a blank cell, which is an error, never a zero). The header is checked before any row is scored.
+- **Encoding:** the whole file is checked for valid UTF-8 in 1 MB blocks first (falls back to cp1252 as before), because switching encoding part-way through a streamed file is not possible.
+- **Row numbers:** numbering continues across chunks and skips fully blank rows exactly as the old path did, so the errors file has the same row numbers as before.
+- **Malformed lines:** all CSV columns are read (not only the used ones) so a line with extra fields still fails the file, as before; `usecols` silently tolerated it.
+- **Per chunk:** validate, score with `batch.score` (the shared `decide_many` core), write audit records, then append to `results.parquet` (fixed schema), `results.csv` (UTF-8 with BOM, as before) and the errors CSV. Audit records are written before the chunk's results reach a file. The summary is built from running counts (`pipeline.Progress`), identical to `batch.summarise` (tested).
+- **In-memory path:** `batch.parse_upload`/`score` remain as the per-chunk building blocks and for small in-memory checks in tests; the Bulk Check page and the API use jobs only. `services.score_batch_upload` was removed (replaced by the job functions).
+
+### D-094 Job settings come from environment variables, not the policy files
+- **Found:** the policy content hash covers the whole profile, including its `batch` section. Adding job settings there would change every profile's `policy_hash`, and so the recorded hash of every new decision, although no rule changed.
+- **Chosen:** job settings are environment variables read by `jobs.load_job_settings()` (documented in `.env.example`): `LOANLENS_JOBS_DIR`, `LOANLENS_JOB_RETENTION_DAYS` (7), `LOANLENS_EMBEDDED_WORKER` (on), `LOANLENS_JOB_CHUNK_SIZE` (20,000), `LOANLENS_JOB_MAX_ROWS` (1,000,000), `LOANLENS_JOB_MAX_UPLOAD_MB` (200), `LOANLENS_BATCH_AUDIT` (`row`), `LOANLENS_BATCH_AUDIT_CHUNK` (1,000), `LOANLENS_WORKER_POLL_SECONDS` (2), `LOANLENS_JOB_STALE_SECONDS` (300). The policy files and hashes are unchanged; `batch.max_rows` (50,000) now applies only to the in-memory helper.
+- **Audit level:** "configurable, row-level by default" is `LOANLENS_BATCH_AUDIT=row|off`. `off` exists for the audit-off benchmark; it is refused when `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1`, and a job run with it records `audited = false` and says so in its note.
+
+### D-095 Jobs table, claiming and the worker
+- **Table:** `batch_jobs` (Alembic `0004_batch_jobs`) has the requested columns plus `include_positive`, `input_format`, `upload_path`, `result_csv_path`, `rows_audited`, `audit_batch_id`, `audited`, `summary` (JSON text), `worker_id`, `claim_token`, `heartbeat_at` and `cancel_requested`. An extra status `expired` marks jobs whose files were deleted by the retention clean-up. `batch_workers` holds a heartbeat per worker.
+- **Claiming:** PostgreSQL: `SELECT id ... ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`, then `UPDATE` in the same transaction. SQLite: one conditional `UPDATE ... WHERE id = (oldest queued) AND status = 'queued'` that writes a fresh claim token; the claimed row is read back by that token. Progress and finishing updates require `status = 'running' AND worker_id = <this worker>`, so a job taken away (stale or cancelled) can no longer be written by its old worker.
+- **No session token:** at submission the service layer verifies the manager and stores their `audit_ref` as `created_by`. The worker writes audit rows with that reference and `actor_role = "manager"`. Before running, it checks that the reference still belongs to an active manager account (the ownership check); otherwise the job fails without scoring.
+- **Stale jobs:** a running job whose heartbeat (updated after every chunk) is older than `LOANLENS_JOB_STALE_SECONDS` is marked failed by any worker at start-up and every minute afterwards. A heartbeat is used instead of "every running job" so that a second worker starting up does not fail a job another live worker is running. Consequence: after a restart, an interrupted job is marked failed within about five minutes, not instantly (documented).
+- **Cancel:** a queued job is cancelled at once; a running one gets `cancel_requested` and stops after its current chunk. Partial result files are deleted; audit records already written stay.
+- **Embedded worker:** `worker.ensure_worker()` starts one daemon thread per database per process when `LOANLENS_EMBEDDED_WORKER` is on (default, including hosted mode, because a free host runs only Streamlit) and no external worker has reported in during the last three poll intervals (at least 10 s). The Streamlit page and the API both call it. The tests switch it off and run jobs explicitly.
+- **Any manager may view, download and cancel every job** (the task allows any manager to view the list). This is stated on the page, in the API docs and in the user guide.
+
+### D-096 Audit trail during batches
+- Reuses `audit.write` (chunked inserts, default 1,000 rows each) through a new `audit.batch_rows` helper (the old loop from `services.score_batch_upload`). The job's `id` is the audit `request_id`, and a new `batch_id` per job is stored on the job (`audit_batch_id`) with the running count `rows_audited`.
+- If a job fails or is cancelled part-way, the records already written remain (the table is append-only); the job's message gives the number of rows and the batch id, and says that uploading again creates a new batch id.
+
+### D-097 File safety and retention
+- Uploads and results live in `LOANLENS_JOBS_DIR` (default `data/jobs/`, gitignored) under random 32-hex-character names with the format's extension. The format is detected from the content (Parquet magic bytes), not the client's name. The client's name is kept for display only (base name, control characters removed, 120 characters at most).
+- `jobs.job_file()` accepts only names matching that pattern and checks that the resolved path is directly inside the jobs directory; download functions take the name from the job record, never from the request. API job ids must be UUIDs (422 otherwise).
+- The upload is deleted when the job ends (any status). Result and error files are deleted after `LOANLENS_JOB_RETENTION_DAYS` (default 7) by `python -m loanlens.worker --cleanup`, which also runs whenever a worker starts; those jobs become `expired`. Queued jobs older than the retention period are expired too.
+- The API enforces `LOANLENS_JOB_MAX_UPLOAD_MB` while copying the upload (413, partial file removed); Streamlit enforces `server.maxUploadSize = 200` in `.streamlit/config.toml`. Note: the API's multipart parser has already received the request body (spooled to a temporary file) before the limit is checked.
+
+### D-098 Bulk Check page
+- A form (file, loan type, positive factors) submits a job. The active job's progress is polled by an `st.fragment(run_every=2)`, so only that fragment reruns, with no busy loop; when the job ends the page reruns once and shows it.
+- The job list shows status, file name, loan type, counts, timestamps and the note of each job. For the selected completed job: summary cards, top rejection reasons, download buttons (results CSV, results Parquet, skipped rows CSV), and a preview of the first 1,000 results and skipped rows (read without loading the whole file).
+- Files over 25 MB are read only after "Prepare downloads"; files over 200 MB are not offered in the browser and the page points to the API, because Streamlit keeps a download button's data in memory.
+- The old in-page filters over all results were removed: holding a million rows in the browser session is what the milestone avoids. Filtering is done in the downloaded file.
+
+### D-099 New dependencies
+- `python-multipart==0.0.20` (FastAPI file uploads), `pyarrow==26.0.1` and `psutil==7.2.2` (already installed as dependencies of other packages, now pinned in `requirements.txt`), and `locust==2.32.4` in `requirements-dev.txt` only. All are on the allowed list.
+
+### D-100 Synthetic data for benchmarks and the memory test
+- `src/loanlens/synthetic.py` generates applicants with numpy (seeded) within the model artifact's `training_ranges` (no data folder needed). Every ID starts with `SYN-`. Files go to `data/benchmarks/` (gitignored).
+- Memory test: 200,000 synthetic rows in 20,000-row chunks; peak resident memory growth on this machine was about 99 MB (input 13.7 MB, results CSV 42 MB). The test limit is 200 MB. The test takes about two minutes, the longest in the suite, and is kept in the default run because the milestone asks for it.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -724,6 +775,10 @@ Each entry records what was found, what was chosen, and why.
 - (Done in Milestone 3, D-084) Revoke open sessions when a password changes.
 - (Done in Milestone 3, D-085) Batch scoring and analytics functions check the role in the service layer.
 - (Rate limits done for the API in Milestone 3, D-089.) Consider a larger breached-password list; sign-up still reveals whether an email is registered (D-076). The Streamlit sign-in page relies on the account lockout only.
-- (Done on 2026-11-06, D-091) Run the PostgreSQL tests, now including the audit triggers, against a disposable database (`LOANLENS_TEST_POSTGRES_URL`). Still to do: run them against PostgreSQL inside Docker in Milestone 5, and in CI.
+- (Done on 2026-11-06, D-091) Run the PostgreSQL tests, now including the audit triggers, against a disposable database (`LOANLENS_TEST_POSTGRES_URL`). The server was a local `postgres:16` Docker container. Still to do: run them in CI, and run LoanLens itself in Docker (Milestone 5).
 - Use a shared store for rate limits if the API is run as several processes or behind a proxy (with a trusted-proxy setting for client addresses).
 - An API endpoint for changing a password, so API-only users created with a temporary password do not need the web app.
+- Batch jobs: a Streamlit version with lazily generated downloads (newer Streamlit supports a callable `data`) would avoid reading result files into memory for the download buttons.
+- Batch jobs: run the external worker as its own container in Milestone 5 (docker-compose) with `LOANLENS_EMBEDDED_WORKER=0` in the app and API containers.
+- About 60% of batch scoring time is explanation work (profiled on a 20,000-row chunk: "what would change" 6.3 s, SHAP 2.2 s of 15.6 s; reports/performance.md). A lender wanting higher throughput could skip "what would change" in bulk mode and compute it on demand, or run several workers; either needs a decision because the first changes the batch output.
+- With SQLite, several API processes writing audit records at once hit the database lock (503 responses in the 4-worker load test); use PostgreSQL whenever the API runs with more than one worker.
