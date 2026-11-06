@@ -156,3 +156,14 @@ Power BI (last phase, optional: export dashboard-ready CSVs only), real authenti
 - If something in the data contradicts this file, use the corrected fact, log it, and continue.
 - Never fabricate metrics. Report what the code actually outputs.
 - Suggested extras go in `reports/decisions_log.md` under "Suggestions", not into the code.
+
+## 14. Platform phase rules (apply to every task in this phase)
+- Permissions: you may create, edit, rename and delete files inside the project directory, install packages into the project's venv, and run python, pytest, ruff, streamlit, uvicorn, alembic, locust, docker (if installed) and git. Never touch anything outside the project directory. Never print or store credentials.
+- Working mode: work continuously without asking questions. Decide yourself and log decisions in reports/decisions_log.md. Stop only if progress is impossible.
+- Scope: do only the tasks in the current prompt. Extras go under "Suggestions" in the decisions log.
+- Identity and wording: no emoji anywhere (UI, docs, reports, code comments, commit messages). Do not name any bank, employer or other institution, and do not claim any affiliation. The only author name is Anshu Raj. Git identity: name "Anshu Raj", email "59351492+Anshu-raj-co@users.noreply.github.com".
+- Behaviour: the decisions for the built-in example applicants under the default personal profile must stay identical unless a prompt says otherwise. At the end of every milestone ruff is clean and all tests pass. Add tests for all new code.
+- Security: no secrets or default passwords in the repository. Configuration comes from environment variables; .env.example documents names only. Passwords are hashed with argon2id. Never log passwords, tokens or personal data. Use the ORM or parameterised queries only. Validate all inputs with Pydantic.
+- Allowed new dependencies (pinned): SQLAlchemy 2.x, Alembic, psycopg (binary), FastAPI, uvicorn, python-multipart, argon2-cffi, PyJWT, pyarrow, psutil, httpx (tests), locust (dev only). No Redis, Celery, Kubernetes, queues or cloud SDKs.
+- Honest numbers: every performance figure must be measured on this machine and reported with the hardware, row counts and date. Never estimate or extrapolate.
+- Docs: every milestone updates README.md, PROJECT_EXPLAINED.md (the plain-English part stays jargon-free), USER_GUIDE.md, reports/progress.md and the decisions log. Commit at the end of each milestone. Push only when a prompt says so. Never force push.
