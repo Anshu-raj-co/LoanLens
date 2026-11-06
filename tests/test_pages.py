@@ -126,5 +126,11 @@ def test_about_page_content(app_path, artifact) -> None:
     md = " ".join(m.value for m in at.markdown)
     assert "Model Card" in md and "does not predict default" in md
     assert "public, synthetic Kaggle data" in md
-    shown = at.dataframe[0].value
+    tables = [d.value for d in at.dataframe]
+    shown = next(t for t in tables if "Config key" in t.columns)
     assert "max_emi_to_income" in set(shown["Config key"])
+    for label in ("Personal loan (v1.0.0)", "Home loan (v1.0.0)", "Vehicle loan (v1.0.0)"):
+        assert label in shown.columns  # every profile's values are listed
+    assert any("not the trained model" in i.value for i in at.info)
+    versions = next(t for t in tables if "Version" in t.columns)
+    assert "Active" in set(versions["Status"])

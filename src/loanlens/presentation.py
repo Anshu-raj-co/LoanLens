@@ -5,6 +5,7 @@ The Streamlit pages only lay out what these functions return.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -12,6 +13,7 @@ import pandas as pd
 from loanlens import explain
 from loanlens.config import Policy
 from loanlens.formatting import SCORE_LABEL, inr, likelihood_band, likelihood_text, pct, times
+from loanlens.registry import Registry
 from loanlens.rules import RuleResult
 from loanlens.schema import ApplicantInput, Change, DecisionResult, Reason
 
@@ -124,7 +126,7 @@ def _rule_value(rule: str, value: float) -> str:
         return pct(value)
     if rule in {"max_loan_to_income", "max_loan_to_assets"}:
         return times(value)
-    return f"{value:g} years"
+    return f"{value:g} year" if value == 1 else f"{value:g} years"
 
 
 def policy_table(policy: Policy) -> pd.DataFrame:
@@ -184,6 +186,67 @@ def policy_table(policy: Policy) -> pd.DataFrame:
         },
     ]
     return pd.DataFrame(rows)
+
+
+PROFILE_NOTE = (
+    "Loan types change the policy rules and assumptions (term limits, income and asset "
+    "multiples, and the assumed interest rate), not the trained model. Every loan type is "
+    "scored by the same model, which learned from one synthetic dataset with no loan-type "
+    "information."
+)
+
+
+def profile_label(name: str) -> str:
+    """Display name of a loan type, e.g. 'Home loan'."""
+    return f"{name.replace('_', ' ').capitalize()} loan"
+
+
+def profile_caption(policy: Policy) -> str:
+    """One line naming the profile, its version and short hash (shown with a result)."""
+    return (
+        f"Loan type: {profile_label(policy.profile)} (policy profile v{policy.version}, "
+        f"settings hash {policy.content_hash[:12]})."
+    )
+
+
+def profiles_table(policies: Mapping[str, Policy]) -> pd.DataFrame:
+    """Every profile's settings side by side (About page): one column per loan type."""
+    table: pd.DataFrame | None = None
+    for name, policy in policies.items():
+        part = policy_table(policy)[["Rule", "Config key", "Value"]].rename(
+            columns={"Value": f"{profile_label(name)} (v{policy.version})"}
+        )
+        if table is None:
+            enforced = policy_table(policy)["Enforced"]
+            table = part.assign(Enforced=enforced.to_numpy())
+        else:
+            table = table.merge(part, on=["Rule", "Config key"], how="left")
+    if table is None:
+        return pd.DataFrame(columns=["Rule", "Config key", "Enforced"])
+    cols = ["Rule", "Config key"] + [c for c in table.columns if c.endswith(")")] + ["Enforced"]
+    return table[cols]
+
+
+def registry_table(registry: Registry) -> pd.DataFrame:
+    """Registered model versions for display (About page), newest first."""
+    rows = [
+        {
+            "Version": e.version,
+            "Status": e.status.capitalize(),
+            "Created (UTC)": e.created_at,
+            "Training rows": e.n_train,
+            "CV ROC-AUC": e.cv_metrics.get("roc_auc"),
+            "CV F1": e.cv_metrics.get("f1"),
+            "Artifact SHA-256 (start)": e.artifact_sha256[:12],
+            "Training data SHA-256 (start)": e.training_data_hash[:12],
+        }
+        for e in reversed(registry.models)
+    ]
+    columns = [
+        "Version", "Status", "Created (UTC)", "Training rows", "CV ROC-AUC", "CV F1",
+        "Artifact SHA-256 (start)", "Training data SHA-256 (start)",
+    ]  # fmt: skip
+    return pd.DataFrame(rows, columns=columns)
 
 
 @dataclass
@@ -290,5 +353,5 @@ def borderline_explainer(policy: Policy) -> str:
         "The verbal likelihood band shown next to the score (for example *Borderline* for "
         f"{bands.borderline:.0%}-{bands.likely:.0%}) is a separate, wider display label; only "
         "the flag above means *manual review recommended*. All of these values are "
-        "placeholders in `config/policy.yaml`."
+        "placeholders in the policy profiles in `config/policies/`."
     )

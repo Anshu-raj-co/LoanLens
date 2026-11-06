@@ -321,7 +321,7 @@ Each entry records what was found, what was chosen, and why.
 
 ## State on resume (before the UI restyle, Phase 9 and Phase 10)
 
-- **Found:** Phases 0-8 committed (last commit `b0569b4`). A stopped session had left uncommitted restyle work: `src/loanlens/theme.py` (new), `.streamlit/config.toml` theme, CSS and header injection in `app/ui_common.py`, restyled customer, bulk and analytics pages, themed `charts.py`, notebooks 02/03 importing the theme (and re-executed), and `reports/example_decisions.md` regenerated with ✅/❌.
+- **Found:** Phases 0-8 committed (last commit `b0569b4`). A stopped session had left uncommitted restyle work: `src/loanlens/theme.py` (new), `.streamlit/config.toml` theme, CSS and header injection in `app/ui_common.py`, restyled customer, bulk and analytics pages, themed `charts.py`, notebooks 02/03 importing the theme (and re-executed), and `reports/example_decisions.md` regenerated with [tick]/[cross].
 - **Kept:** all of it. Each file was reviewed, `ruff` passed and the full test suite passed (251 tests, including the new `tests/test_theme.py`), with no earlier test modified.
 - **Discarded:** nothing. Two defects found while verifying in a real browser were fixed rather than discarded (D-050).
 - Re-executing `03_modelling.ipynb` re-runs its final cell, which retrains and re-saves the production model. Training is seeded and deterministic, so only the `trained_at` timestamp changed; all model tests still pass. From Phase 9 on, nothing touches `models/`.
@@ -331,18 +331,18 @@ Each entry records what was found, what was chosen, and why.
 ### D-049 Theme module and how styling is attached
 - **Chose:** every colour lives in `src/loanlens/theme.py` (palette, darker "ink" text shades, status mapping, CSS, Plotly template, HTML snippets). `app/ui_common.setup_page` injects one CSS block and the header strip on every page; `charts.py` and the notebooks use the shared Plotly template. `.streamlit/config.toml` forces `base = "light"` with the palette; a test keeps it in sync with `theme.STREAMLIT_THEME`.
 - **How elements are coloured:** Streamlit 1.40 adds a CSS class `st-key-<key>` to keyed containers, so cards, banners, panels and metric cards are `st.container(key="card_rejected_...")`, `key="banner_approved"`, `key="kpi_warning_..."` etc., styled by CSS. Alerts are recoloured by kind. This kept Streamlit's own `st.success` / `st.error` / `st.metric` elements, so **no earlier test had to change**.
-- **Customer result:** banner = keyed container holding the status alert ("✅ Approved" / "❌ Rejected", restyled as a large heading), the amber borderline pill beside it, and the likelihood metric with its band and "indicative only" label. The existing amber borderline note below is kept (it carries the reason). Policy checks are now a list with ✓ / ✗ / ! icons plus the words Pass / Fail / Advisory, instead of a table.
-- **Bulk Check:** six metric cards (total scored blue, approved green, rejected red, borderline amber, skipped grey, approval rate blue). The table shows "✅ Approved" / "❌ Rejected" text, coloured with a pandas Styler. Styler marshalling took 0.26 s for 1,000 rows and 0.61 s for 5,000, so colours are applied up to `theme.STYLED_ROWS_LIMIT` = 5,000 visible rows; above that the icon text alone is shown with a caption (filtering brings colours back). The download is still built from the raw results, so its columns and values are unchanged.
+- **Customer result:** banner = keyed container holding the status alert ("[tick] Approved" / "[cross] Rejected", restyled as a large heading), the amber borderline pill beside it, and the likelihood metric with its band and "indicative only" label. The existing amber borderline note below is kept (it carries the reason). Policy checks are now a list with [tick mark] / [cross mark] / ! icons plus the words Pass / Fail / Advisory, instead of a table.
+- **Bulk Check:** six metric cards (total scored blue, approved green, rejected red, borderline amber, skipped grey, approval rate blue). The table shows "[tick] Approved" / "[cross] Rejected" text, coloured with a pandas Styler. Styler marshalling took 0.26 s for 1,000 rows and 0.61 s for 5,000, so colours are applied up to `theme.STYLED_ROWS_LIMIT` = 5,000 visible rows; above that the icon text alone is shown with a caption (filtering brings colours back). The download is still built from the raw results, so its columns and values are unchanged.
 - **Skipped rows:** shown inside an amber panel (amber chosen over red because skipped rows are a data warning, not a rejection).
 
 ### D-050 Accessibility and two rendering fixes
-- **Contrast (WCAG AA, checked in `tests/test_theme.py`):** navy text on white 16.9:1, muted text on white 5.6:1, navy on every tint above 14:1. The brand green, red and amber reach only 3.1-4.6:1 on their tints, and white on the primary blue is 4.38:1. So brand colours are used for borders, icons, chart marks and large headings (3:1 is enough there), while small coloured text uses darker ink shades: green `#157A45` (4.8:1 on its tint), red `#B42318` (5.8:1), amber `#8A5A12` (5.4:1), and buttons / header use blue `#1D5FCF` (5.9:1 with white). Status is never shown by colour alone: always ✅/❌/⚠ plus the word.
+- **Contrast (WCAG AA, checked in `tests/test_theme.py`):** navy text on white 16.9:1, muted text on white 5.6:1, navy on every tint above 14:1. The brand green, red and amber reach only 3.1-4.6:1 on their tints, and white on the primary blue is 4.38:1. So brand colours are used for borders, icons, chart marks and large headings (3:1 is enough there), while small coloured text uses darker ink shades: green `#157A45` (4.8:1 on its tint), red `#B42318` (5.8:1), amber `#8A5A12` (5.4:1), and buttons / header use blue `#1D5FCF` (5.9:1 with white). Status is never shown by colour alone: always [tick]/[cross]/[warning sign] plus the word.
 - **Fix 1:** Streamlit's fixed toolbar overlapped the header strip; the top padding was increased.
 - **Fix 2:** Streamlit's front end replaced a plot background written as `#FFFFFF` with the soft-panel colour. Charts now pin the background as `rgb(255, 255, 255)`, and the Analytics page passes `theme=None` so Streamlit's chart theme does not override the LoanLens template.
 - Approval-*rate* bars, feature importance and likelihood-band counts are neutral series, so they use the primary blue; status splits use green/red; rejection-reason counts are red. The approval-rate heatmap uses a red-amber-green scale from the palette.
 
 ### D-051 Example applicants
-- `reports/example_decisions.md` now shows "✅ Approved" / "❌ Rejected", "⚠️ Borderline: manual review recommended", and ✅/❌/⚠️ on policy checks. Values and outcomes are unchanged.
+- `reports/example_decisions.md` now shows "[tick] Approved" / "[cross] Rejected", "[warning sign] Borderline: manual review recommended", and [tick]/[cross]/[warning sign] on policy checks. Values and outcomes are unchanged.
 - The example applicants are not displayed anywhere in the app (no example buttons, not on the About page). Adding them would be a new feature, so nothing was added; see Suggestions.
 
 ### D-052 Screenshots
@@ -435,7 +435,7 @@ Each entry records what was found, what was chosen, and why.
 ## Visual cleanup: no emoji, no disclaimer box, simpler header (visual only)
 
 ### D-068 Emoji removed, status shown by colour plus words
-- **Found:** emoji or icon characters in page titles and `page_icon` values, Home card titles and page-link icons, result banners, the borderline pill and warning, the reason, change and positive-factor lines, Bulk Check and Analytics metric labels, `theme.STATUS_ICONS`, the ✓ / ✗ / ! policy-check marks and the ◎ header logo. `config/policy.yaml` and `reports/model_card.md` (shown on About) had none.
+- **Found:** emoji or icon characters in page titles and `page_icon` values, Home card titles and page-link icons, result banners, the borderline pill and warning, the reason, change and positive-factor lines, Bulk Check and Analytics metric labels, `theme.STATUS_ICONS`, the [tick mark] / [cross mark] / ! policy-check marks and the [ring logo] header logo. `config/policy.yaml` and `reports/model_card.md` (shown on About) had none.
 - **Chose:** every one removed, and the colours left as they were. Status is now the word "Approved" / "Rejected" (`theme.status_label` returns the plain status). The pill reads "Borderline - manual review recommended". Policy checks show the coloured word "Passed", "Failed" or, for the advisory EMI rule, "Advisory" (the task names only Passed / Failed; "Advisory" keeps the existing third state as a word). Lines that used to start with an emoji now show their text alone, with nothing in its place.
 - **`page_icon`:** the argument is no longer passed (`setup_page(title)` has no icon parameter), so the browser tab shows Streamlit's default favicon. No icon character is used anywhere.
 - **Also covered:** `scripts/example_decisions.py` now writes "Passed / Failed / Advisory" and plain status words; `reports/example_decisions.md` was regenerated from it. Emoji were removed from README, USER_GUIDE and PROJECT_EXPLAINED. Typographic arrows (→) in PROJECT_EXPLAINED are not emoji and the app never shows them, so they were kept. Older entries in this log and in `progress.md` are historical records and were left unchanged.
@@ -447,6 +447,76 @@ Each entry records what was found, what was chosen, and why.
 - **Header:** the strip now shows only "LoanLens", in white at 2.4rem, weight 800. The tagline and logo are gone. `align-items: center` with a 4.4rem minimum height centres the title vertically. The strip keeps its colour, padding and margin, and the main container's 3.6rem top padding keeps it clear of Streamlit's toolbar (checked in the screenshots).
 - **Unchanged (verified):** decision logic, thresholds, model, reason wording, batch processing, pages and navigation. For the six built-in examples, `decide()` gives byte-identical status, probability, borderline flag, reasons, what-would-change, rule results and warnings before and after the change.
 
+## Milestone 1: database layer, policy profiles, model registry
+
+### State on resume (before Milestone 1)
+- **Found:** clean tree at `2fe6607` (visual cleanup pushed). 316 tests passing, ruff clean. One policy file (`config/policy.yaml`), one unversioned model file (`models/loanlens_model.joblib`, SHA-256 `49b800ef9416...`), and `storage.py` on stdlib `sqlite3`. A local `data/loanlens.sqlite` (gitignored) held 13 batch summaries created by the old code.
+- **Step 0:** section 14 (platform phase rules) appended to CLAUDE.md verbatim and committed on its own (`3c403ba`).
+- **Baseline:** before any change, `decide()` output for the six built-in examples (status, probability, borderline, reasons, what-would-change, rule results, warnings) was saved and compared again after each part. It stayed byte-identical throughout.
+
+### D-070 Database layer (SQLAlchemy 2 + Alembic)
+- **Chose:** `src/loanlens/db/engine.py` handles the URL, engine and sessions, and `db/models.py` holds the tables. The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; relative SQLite paths resolve against the project root. `postgresql://` and `postgresql+psycopg2://` URLs are rewritten to `postgresql+psycopg://`.
+- **Pinned versions:** SQLAlchemy 2.0.57, alembic 1.20.1, psycopg[binary] 3.3.8 (all on the allowed list).
+- **Schema identical to the old one:** `batch_summaries` is an ORM class. `batch_rows` stays a Core table because the original schema has no primary key, and adding one would change existing databases. Inserts into it are parameterised Core statements.
+- **Migrations:** they live inside the package (`src/loanlens/db/migrations/`, revision `0001_initial`), so the app can apply them itself. `ensure_schema()` runs `upgrade head` once per URL per process on the app's own connection, and `env.py` only reconfigures logging when run from the `alembic` CLI. The initial migration creates each table only if it is missing, so the existing local database was adopted. Checked on a copy: 13 rows kept, `alembic_version` = `0001_initial`. In offline `--sql` mode the existence check is skipped. `alembic.ini` sits at the project root.
+- **Storage behaviour unchanged:** same function signatures, return values, NaN rate stored as NULL, newest first, and `None` / empty table when the SQLite file does not exist yet (no file is created on read). The URL is chosen in this order: an explicit `path` (tests), then `DATABASE_URL`, then `storage.db_path` from the policy. Existing tests that redirect `storage.db_path` keep working.
+- **Friendly failures:** every SQLAlchemy error becomes a `DatabaseError` with a fixed plain message. It never includes the URL, host or password, and the driver error is suppressed (`from None`). PostgreSQL connections time out after 5 seconds; without a timeout an unreachable server hung for more than two minutes in a first check. Bulk Check shows the message as a note under the results, and Analytics shows it in its error box.
+- **Tests:** `tests/test_db.py` covers migrations, round trip, IDs off by default, legacy upgrade, URL order and normalisation, the friendly errors and the `alembic` CLI (upgrade, downgrade, `--sql`). They run on SQLite always and on PostgreSQL only when `LOANLENS_TEST_POSTGRES_URL` is set.
+- **PostgreSQL not exercised here:** Docker 29.6.2 is installed, but its engine was not running, and starting Docker Desktop would act outside the project, so it was not started. The three PostgreSQL tests were skipped. No PostgreSQL run is claimed.
+- **Test isolation:** an autouse fixture in `tests/conftest.py` removes `DATABASE_URL` and `LOANLENS_MODEL_VERSION` for every test, so a developer's settings never leak in.
+
+### D-071 Policy profiles
+- **Layout:** `config/policy.yaml` was moved with `git mv` to `config/policies/personal.yaml`. Its only changes are the header comment and three new keys: `profile: personal`, `version: "1.0.0"`, `description`. Every rule, EMI, model, display, batch, storage and cleaning value is unchanged. `home.yaml` and `vehicle.yaml` contain only the decision sections (rules, emi, model, display).
+- **Illustrative differences** (all marked PLACEHOLDER):
+  - **Home:** term 5-30 years, 6.0x income, 2.0x assets, 8.5% rate.
+  - **Vehicle:** term 1-7 years, 1.5x income, 1.0x assets, 11% rate.
+  - **Same in all three:** minimum CIBIL, EMI cap and every model setting (threshold, band, margin), so a profile changes rules and assumptions only.
+  - These numbers are not taken from any lender. They only show the mechanism.
+- **App-wide settings:** batch limits, storage and cleaning are read from the default profile only, because one upload can mix loan types.
+- **Content hash:** SHA-256 of the validated settings as canonical JSON (`model_dump`, sorted keys), not of the raw file bytes. Comment or spacing edits do not change it; any value change does. Exposed as `Policy.content_hash`, a cached property computed when the file loads.
+- **Names:** `load_profile()` ignores case and spaces, and blank means personal. A name must match `^[a-z][a-z0-9_]{0,31}$` and have a file. Anything else, including path tricks such as `../personal`, raises `UnknownProfileError`, whose message lists the valid names.
+- **Backward compatibility:** `load_policy()` and `POLICY_PATH` now point at the personal profile, and `cleaning.py` reads `cleaning.negative_assets_strategy` from it. `decide()` and `decide_many()` accept `profile=`; an explicit `policy=` still wins.
+- **New result fields:** `DecisionResult` gains `profile`, `policy_version` and `policy_hash` (with `model_version`, which already existed). These four fields are the only change to the output.
+- **Batch:**
+  - The optional `product` column also accepts the headers loan_type, product_type, loan_product and profile.
+  - Blank means personal. An unknown value is a row error that names the valid types.
+  - Within each chunk, rows are grouped by product and decided under their own profile, and row order is kept.
+  - Results gain a `product` column.
+  - The download template is unchanged; the `product` column is documented on the page and in USER_GUIDE.
+- **UI:** a "Loan type" selector at the top of the customer form, whose caption and thresholds note follow the selection. A provenance line under the result gives profile, policy version, settings hash and model version. About shows all profiles side by side, with version and hash. Every place states that loan types change the rules and assumptions, not the trained model.
+- **Tests:** `tests/test_profiles.py`:
+  - personal reproduces the six example decisions, pinned to their pre-profile probabilities, and is identical to the default;
+  - each profile's term, income-multiple, asset-multiple and interest-rate rules apply;
+  - unknown and malicious names are rejected;
+  - hash stability and semantic-version validation;
+  - the `product` column, aliases, mixed products across chunks and the loan-type selector on the page.
+- **Text references updated:** the old path is replaced in code, UI text, `rules.py`, which regenerated `reports/rules_vs_labels.md` (one line changed), the model card, notebook 01 (one markdown cell, no outputs touched) and three path mentions in CLAUDE.md sections 5, 8 and 10, which are factual paths, not rules. `reports/example_decisions.md` regenerated byte-identical.
+
+### D-072 Model registry
+- **Format:** `src/loanlens/registry.py` keeps `models/registry.json`, validated with Pydantic. Each entry records `version`, `created_at`, `training_data_hash`, `n_train`, `features`, `kind`, `calibration`, `cv_metrics`, `artifact`, `artifact_sha256`, `artifact_bytes`, `status` and `notes`. Exactly one entry is active, and writes are atomic (temporary file, then replace).
+- **Training:**
+  - `python -m loanlens.model` trains a new version: the next minor version by default, or `--version X.Y.Z`.
+  - It saves `loanlens_model_<version>.joblib` and registers it.
+  - It activates the new version unless `--no-activate` is given. Activating by default matches the old behaviour, where training replaced the model.
+  - Older artifacts are kept.
+- **CLI:** `--list` prints the registry. `--activate <version>` verifies the file's hash before switching.
+- **Loading:** `load_artifact()` with no path uses `LOANLENS_MODEL_VERSION` or the active version, and checks the SHA-256 before loading (about 0.4 MB, hashed on each call). A mismatch raises `ArtifactIntegrityError`, which the app shows as a plain message. `load_artifact(path)` still loads a given file directly, which older tests and notebooks use.
+- **Existing artifact:** `migrate_legacy_artifact()` runs once when no registry exists. It renames `models/loanlens_model.joblib` (and its JSON sidecar) to `loanlens_model_1.0.0.joblib` and registers it as active.
+  - SHA-256 is the same before and after: `49b800ef9416d983454038326513a400ed3bddf129c9f1b2d5f4c61ac86797f4`, so predictions are unchanged.
+  - Its training-data hash (`4cbe223d...`) was computed at registration time from the current `data/processed/loan_approval_clean.csv`, not at original training time; the entry's `notes` field says so. The row count matches (4,269).
+  - `MODEL_PATH` is kept as an alias of the legacy path, for notebook 03.
+- **Committed files:** `.gitignore` now un-ignores `models/registry.json`, `models/loanlens_model_1.0.0.joblib` (397,777 bytes) and its `.json`, so a fresh clone can score without retraining. The artifact contains the model plus aggregate metadata (feature ranges, approved-applicant medians), no data rows. Archived versions stay local. After activating another version, the two artifact lines in `.gitignore` must be updated by hand (noted in the file).
+- **Tests:** `tests/test_registry.py` covers:
+  - the committed registry (one active entry, verified hash, metrics);
+  - predictions unchanged through the registry;
+  - round trip, activation, duplicates and the environment override;
+  - hash mismatch on load and on activate, missing files, an invalid registry file and version-name checks;
+  - legacy migration (bytes unchanged, runs once), training with older versions kept, and the CLI.
+
+### D-073 Documentation for Milestone 1
+- README, USER_GUIDE, PROJECT_EXPLAINED (Part 1 gained two jargon-free sections: "Different kinds of loan" and "Keeping a record"), the model card, `.env.example` (names only) and the screenshots were updated. The 02 form now shows the loan-type selector, and 07 About shows model versions and the profile table.
+- README now says the earlier fresh-clone verification predates Milestone 1 and was not repeated.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -455,7 +525,10 @@ Each entry records what was found, what was chosen, and why.
 - In the batch phase, vectorise `decide()` (rules via `rule_pass_frame`, a single `predict_proba`, and SHAP on the whole batch) instead of calling it row by row. At about 16 ms per row, 1,000 rows would take about 16 s.
 - Consider a co-applicant income field later; the dataset has none, so it was not modelled.
 - For uploads above 50,000 rows, XGBoost could use more threads (`n_jobs`) at scoring time only; training stays single-threaded for determinism.
-- Optional "Try an example" buttons on the customer page that load the six hypothetical examples, shown with the same ✅/❌ styling.
+- Optional "Try an example" buttons on the customer page that load the six hypothetical examples, shown with the same [tick]/[cross] styling.
 - Add a LICENSE file (for example MIT) so others know how they may reuse the code; the datasets keep their own licences.
 - Add GitHub repository topics (streamlit, explainable-ai, credit-scoring, xgboost, shap) and a short description.
 - Add a GitHub Actions workflow running `ruff` and the data-free part of `pytest` on each push.
+- **Default demo password (attention):** CLAUDE.md section 14 now says "no secrets or default passwords in the repository", but `src/loanlens/access.py` still falls back to the documented local demo password `loanlens-demo`, and README, USER_GUIDE and the tests describe it. Removing it changes the Bulk Check gate's behaviour and was not part of Milestone 1, so it was left as is. Suggested: drop the fallback (require `LOANLENS_MANAGER_PASSWORD`, stored as an argon2id hash) in a later milestone.
+- Run the PostgreSQL tests (`LOANLENS_TEST_POSTGRES_URL`) against a disposable database, for example a local Docker container once Docker's engine is running, or in CI.
+- When another model version is activated, update the artifact lines in `.gitignore` (or move to a release-asset workflow for artifacts).

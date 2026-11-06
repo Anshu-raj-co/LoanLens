@@ -1,0 +1,62 @@
+# LoanLens policy profile: home loans.
+# All values below are PLACEHOLDERS: illustrative values only, chosen to show how a loan
+# type can change the rules. A lender would replace them with its own credit policy. Do not
+# treat them as real lending policy.
+#
+# A profile changes the rules and assumptions only. It does NOT change the trained model,
+# which learned from one synthetic dataset with no loan-type information (loan term 2 to 20
+# years, loan-to-income 1.5x to 4.0x). Values outside that range get a reliability warning.
+#
+# Differences from the personal profile (illustrative):
+#   - loan term 5 to 30 years (personal: 2 to 20)
+#   - loan up to 6.0x annual income (personal: 4.0x)
+#   - loan up to 2.0x total assets (personal: 1.5x)
+#   - assumed interest rate 8.5% a year (personal: 10%)
+#
+# App-wide settings (batch, storage, cleaning) come from the default personal profile.
+
+profile: home
+version: "1.0.0"
+description: Home loan. Longer terms and higher income multiples; illustrative placeholder values.
+
+rules:
+  min_cibil:                  # pass if cibil_score >= value
+    value: 550                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_emi_to_income:          # pass if monthly EMI / monthly income <= value
+    value: 0.50               # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: false            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_to_income:         # pass if loan amount / annual income <= value
+    value: 6.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_to_assets:         # pass if loan amount / total assets <= value
+    value: 2.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  min_loan_term_years:        # pass if loan_term >= value
+    value: 5                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_term_years:        # pass if loan_term <= value
+    value: 30                 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+
+emi:
+  assumed_annual_interest_rate: 0.085 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (dataset has no rate)
+
+model:
+  approval_threshold: 0.5     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  borderline_band:
+    lower: 0.4                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    upper: 0.6                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  # A result is also borderline when CIBIL is within this many points of the enforced
+  # min_cibil threshold, on either side (milestone 2 review, decision 3).
+  borderline_cibil_margin: 25 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+
+display:
+  # Verbal bands shown next to the model score. Each value is the band's lower bound
+  # (Very likely >= 0.85, Likely 0.65-0.85, Borderline 0.35-0.65, Unlikely 0.15-0.35,
+  # Very unlikely < 0.15). Display only: stored probabilities are never changed.
+  probability_bands:
+    very_likely: 0.85         # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    likely: 0.65              # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    borderline: 0.35          # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    unlikely: 0.15            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy

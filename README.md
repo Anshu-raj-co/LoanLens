@@ -36,7 +36,7 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 | **Chosen model** | XGBoost with monotone constraints (a higher CIBIL never lowers, a bigger loan never raises the score) and isotonic calibration, on 5 features. Chosen as the simplest model within about 1% of the best; the constraints cost 0.4 ROC-AUC points. |
 | **Cross-validation** (stratified 5-fold, seed 42) | ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546 |
 | **Leakage check** | Shuffled labels give ROC-AUC 0.499 (chance). CIBIL alone reaches 0.960; without CIBIL the model drops to 0.584. |
-| **Tests** | 281 passing (`pytest`), 98% coverage of `src/loanlens`, `ruff` clean |
+| **Tests** | 376 passing, 3 PostgreSQL tests skipped without a database (`pytest`), 98% coverage of `src/loanlens`, `ruff` clean |
 | **Batch speed** (measured) | 1,000 rows in about 0.7 s, 10,000 rows in about 6.2 s, 50,000 rows in about 16-32 s |
 | **Benchmark** | In the primary dataset, **CIBIL dominates** (about 99% approved above 550, about 10% at or below). In `bank_loan_data.csv`, **a previous default dominates** and credit score alone had almost no effect (ROC-AUC 0.50). |
 
@@ -73,19 +73,19 @@ data/raw/bank_loan_data.csv          # benchmark notebook only
 data/raw/loan_data.csv               # sanity check only
 ```
 
-**2. Install, build the model once, and run:**
+**2. Install and run:**
 
 ```bash
 py -3.11 -m venv .venv               # create the virtual environment
 .venv\Scripts\activate               # activate it
 pip install -r requirements.txt      # pinned packages + LoanLens itself
-python -m loanlens.model             # build the cleaned data and the model (models/ is not committed)
+python -m loanlens.cleaning          # build the cleaned data used by the Analytics page and tests
 streamlit run app/Home.py            # start the app at http://localhost:8501
 ```
 
-`python -m loanlens.model` cleans `data/raw/loan_approval_dataset.csv` into `data/processed/`, cross-validates the final model and saves `models/loanlens_model.joblib` (well under a minute). If you start the app without it, every page shows a friendly message telling you to run this command; nothing crashes.
+The registered model (version 1.0.0, about 0.4 MB) and `models/registry.json` are committed, so no training is needed to use the app. `python -m loanlens.model` trains a **new** version (see [Model registry](#model-registry)); it also builds the cleaned data if it is missing. If no model is registered, every page shows a friendly message telling you to run that command; nothing crashes.
 
-This whole sequence was verified from a fresh `git clone` (see `reports/progress.md`).
+The earlier fresh-clone verification in `reports/progress.md` predates the model registry and policy profiles (Milestone 1); it has not been repeated since.
 
 ## Data
 
@@ -104,17 +104,17 @@ Licences were read from Kaggle's dataset metadata; please check each page yourse
 | Page | What it does |
 |---|---|
 | **Home** | Purpose, the placeholder-thresholds notice, links to every page and a short "how a result is decided" summary. |
-| **Check My Eligibility** (customers) | An 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). **Nothing entered is stored or logged.** |
-| **Bulk Check** (bank staff) | Behind the manager gate. Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. Only an **anonymised summary** of each batch is saved (`data/loanlens.sqlite`). |
+| **Check My Eligibility** (customers) | A **Loan type** selector (personal, home, vehicle) and an 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). **Nothing entered is stored or logged.** |
+| **Bulk Check** (bank staff) | Behind the manager gate. Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. An optional `product` column picks each row's loan type (blank means personal; an unknown value is a row problem). Only an **anonymised summary** of each batch is saved (in `data/loanlens.sqlite`, or the database named by `DATABASE_URL`). |
 | **Analytics** | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. |
-| **About** | The framing, data source, model metrics, every current policy value with its enforce setting, how the borderline flag works, the benchmark summary and the full model card. |
+| **About** | The framing, data source, the active model version and its metrics, every registered model version, every loan type's policy values side by side with the enforce settings, how the borderline flag works, the benchmark summary and the full model card. |
 
 ## How a decision is made
 
 Single source of truth: `src/loanlens/decision.py`. Customer mode and Bulk Check use the same vectorised core, so they always agree. For every application, in order:
 
 1. **Validate** the input (Pydantic). Missing or impossible values return a clear message and no decision.
-2. **Policy rules** from `config/policy.yaml`. Each rule has a `value` and an `enforce` flag:
+2. **Policy rules** from the selected loan type's profile in `config/policies/` (personal by default). Each rule has a `value` and an `enforce` flag. For the default personal profile:
    - *Enforced* rules (minimum CIBIL 550, loan at most 4.0x annual income, loan at most 1.5x total assets, term 2 to 20 years): a failure means **Rejected**, whatever the model says, with that rule as the reason.
    - *Advisory* rules (EMI at most 50% of monthly income, using an **assumed 10% interest rate** because the data has no rate): a failure only adds a warning.
 3. **Model**: a calibrated XGBoost probability `p` (features: CIBIL, loan term, loan-to-income, income, total assets; monotone so a higher CIBIL never lowers, and a bigger loan never raises, the score). `p >= 0.5` means Approved.
@@ -123,6 +123,40 @@ Single source of truth: `src/loanlens/decision.py`. Customer mode and Bulk Check
 6. **What would change**: the smallest CIBIL increase or loan reduction that would likely flip a rejection ("would likely", never "guaranteed"). It never suggests a shorter term or a bigger loan.
 
 The displayed score never reads 0% or 100% (">99%" / "<1%") and carries a verbal band (Very likely, Likely, Borderline, Unlikely, Very unlikely).
+
+Every result records which settings produced it: `profile`, `policy_version`, `policy_hash` (SHA-256 of the profile's validated settings) and `model_version`.
+
+## Loan types (policy profiles)
+
+Each loan type has one file in `config/policies/` with `profile`, `version` (semantic version), `description` and the settings. **A loan type changes the policy rules and assumptions, not the trained model**: every loan type is scored by the same model, which learned from one synthetic dataset with no loan-type information. All values are illustrative placeholders.
+
+| Setting | Personal (default) | Home | Vehicle |
+|---|---|---|---|
+| Loan term | 2 to 20 years | 5 to 30 years | 1 to 7 years |
+| Maximum loan / annual income | 4.0x | 6.0x | 1.5x |
+| Maximum loan / total assets | 1.5x | 2.0x | 1.0x |
+| Assumed interest rate (for EMI) | 10% | 8.5% | 11% |
+| Minimum CIBIL, EMI cap, model threshold, borderline band | same | same | same |
+
+`personal.yaml` reproduces the original `config/policy.yaml` exactly, and the built-in example decisions under it are unchanged (checked by `tests/test_profiles.py`). The model only saw loan terms of 2 to 20 years and loan-to-income of 1.5x to 4.0x, so a home loan of, say, 25 years or 5x income passes the home rules but gets an out-of-range warning and is scored by a model that never saw such cases. The batch, storage and cleaning sections are app-wide and are read from the personal profile.
+
+## Model registry
+
+`models/registry.json` records every trained model version: version, creation time, training-data hash, feature list, cross-validation metrics, artifact file name, artifact SHA-256 and status (`active` or `archived`).
+
+```bash
+python -m loanlens.model                    # train, save models/loanlens_model_<version>.joblib, register, activate
+python -m loanlens.model --version 2.0.0    # choose the version number (default: next minor version)
+python -m loanlens.model --no-activate      # register without switching the active model
+python -m loanlens.model --list             # show every registered version
+python -m loanlens.model --activate 1.0.0   # switch the active version (older artifacts are kept)
+```
+
+The app loads the active version, or the one named by `LOANLENS_MODEL_VERSION`, and first checks the file's SHA-256 against the registry; a mismatch stops loading with a plain message. The original single artifact was registered as version 1.0.0 with its bytes unchanged, so its predictions are identical. The registry and the active artifact are committed (`.gitignore` lists them); archived artifacts stay local.
+
+## Database
+
+Anonymised batch summaries are stored through SQLAlchemy 2. The database comes from the `DATABASE_URL` environment variable; without it LoanLens uses the local SQLite file `sqlite:///data/loanlens.sqlite`. PostgreSQL works through psycopg (`postgresql://...`). The schema is managed by Alembic (`src/loanlens/db/migrations/`); the app applies migrations itself, or run `alembic upgrade head` from the project root. A database that cannot be reached gives a plain message, never a stack trace, and never blocks Bulk Check results. `.env.example` lists the environment variable names (no values).
 
 ## Bank manager password (prototype gate)
 
@@ -144,8 +178,9 @@ The password is read, in order, from:
 - The manager gate is a **prototype gate, not real authentication**.
 - The documented demo password `loanlens-demo` is for **local use only**. Set your own with `LOANLENS_MANAGER_PASSWORD` or `.streamlit/secrets.toml` before showing the app to anyone.
 - **Never host the app publicly with the demo password.**
-- Customer mode stores nothing. Bulk Check saves only anonymised batch summaries (counts, approval rate, top reasons) in a local SQLite file; applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policy.yaml` (it is off).
-- Datasets, the model file, the SQLite database, `.env` and `.streamlit/secrets.toml` are gitignored. No other password or secret exists in the code or the repository.
+- Customer mode stores nothing. Bulk Check saves only anonymised batch summaries (counts, approval rate, top reasons) in the configured database (a local SQLite file by default); applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policies/personal.yaml` (it is off). Database access uses the SQLAlchemy ORM or parameterised statements only.
+- The database URL comes from the environment (`DATABASE_URL`) and is never written to the repository or shown in error messages.
+- Datasets, archived model files, the SQLite database, `.env` and `.streamlit/secrets.toml` are gitignored. Apart from the documented demo password above, no password or secret exists in the code or the repository.
 
 ## Project structure
 
@@ -155,28 +190,32 @@ README.md, USER_GUIDE.md, PROJECT_EXPLAINED.md
 requirements.txt          pinned packages (+ `-e .` for the loanlens package)
 requirements-dev.txt      optional extras (Playwright, for screenshots)
 pyproject.toml            package, ruff and pytest settings
-config/policy.yaml        every threshold, enforce flag and display setting (all PLACEHOLDERS)
+config/policies/          one profile per loan type: personal (default), home, vehicle (all PLACEHOLDERS)
+alembic.ini               Alembic settings (database from DATABASE_URL)
+.env.example              environment variable names (no values)
 .streamlit/config.toml    light theme; stack traces hidden from users
 data/raw/                 the three Kaggle CSVs (not committed)
 data/processed/           cleaned primary dataset (built by `python -m loanlens.model`)
-models/                   saved model artifact (built, not committed)
+models/                   registry.json and the active artifact (committed); archived versions (local)
 notebooks/                01_audit, 02_eda, 03_modelling, 04_benchmark_bank_loan_data
 src/loanlens/
   schema.py               Pydantic input/output models, friendly validation messages
   cleaning.py             cleaning of the primary dataset
   features.py             EMI, ratios, total assets, CIBIL bands
   rules.py                policy rules (enforced vs advisory)
-  model.py                train, cross-validate, calibrate, save, load
+  model.py                train, cross-validate, calibrate, save, load; CLI (--list, --activate)
+  registry.py             model registry: versions, hashes, active version, integrity check
   explain.py              SHAP reasons, positive factors, what-would-change search
   decision.py             orchestrates everything (single source of truth)
   batch.py                CSV in, validation, scoring, results out
-  storage.py              SQLite, anonymised batch summaries only
+  storage.py              anonymised batch summaries only (via the db layer)
+  db/                     SQLAlchemy engine and sessions, tables, Alembic migrations
   presentation.py         display text and views used by the pages
   formatting.py           Indian digit grouping, score display
   theme.py                every colour, the app CSS and the Plotly template
   charts.py               Plotly charts (Analytics page and notebooks)
   access.py               the prototype manager gate
-  config.py, examples.py  policy loading; six hypothetical example applicants
+  config.py, examples.py  policy profiles, content hash; six hypothetical example applicants
 app/                      Streamlit pages (layout only; all logic is in src/loanlens)
 reports/                  model card, benchmark, decisions log, progress, examples, screenshots
 scripts/                  example_decisions.py, make_batch_fixture.py
@@ -186,30 +225,33 @@ tests/                    pytest suite (unit tests and headless page tests); fix
 ## Development
 
 ```bash
-python -m loanlens.model               # (re)build cleaned data and the model
+python -m loanlens.model               # train and register a new model version
+python -m loanlens.model --list        # registered versions
+alembic upgrade head                   # apply database migrations (DATABASE_URL or local SQLite)
 python -m loanlens.rules               # write reports/rules_vs_labels.md
 python scripts/example_decisions.py    # write reports/example_decisions.md
 python scripts/make_batch_fixture.py   # regenerate the synthetic tests/fixtures/batch_1000.csv
 ruff check .
-pytest                                 # 281 tests
+pytest                                 # 376 passed, 3 skipped (PostgreSQL)
 pytest --cov=loanlens                  # coverage of src/loanlens (98%)
 ```
 
-Tests that need the dataset or model skip themselves if `data/raw/` is empty.
+Tests that need the dataset or model skip themselves if `data/raw/` is empty. The PostgreSQL tests run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped.
 
 ## Limitations
 
 - **Synthetic data.** The patterns reflect how the Kaggle dataset was generated, not any real lender's policy or real borrowers. Scores are near-perfect for that reason, not because the problem is easy in reality.
 - **CIBIL dominates.** About 99% of applicants above CIBIL 550 are approved and about 10% at or below; CIBIL has 57% of the model's influence. The second feature, loan term, matters only because of a synthetic quirk (short-term, low-CIBIL approvals), and "what would change" never suggests changing the term.
 - **Approval, not default.** Nothing here measures repayment risk.
-- **Placeholder thresholds.** Every value in `config/policy.yaml` (minimum CIBIL, loan-to-income, loan-to-assets, term limits, EMI cap, borderline band and margin, likelihood bands, which rules are enforced) is illustrative until replaced by a lender's real credit policy.
+- **Placeholder thresholds.** Every value in `config/policies/` (minimum CIBIL, loan-to-income, loan-to-assets, term limits, EMI cap, borderline band and margin, likelihood bands, which rules are enforced) is illustrative until replaced by a lender's real credit policy.
 - **Assumed interest rate.** The data has no rate or existing EMIs, so EMI uses an assumed 10% a year and the EMI-to-income rule is advisory only.
 - **Narrow training ranges.** Loan-to-income only spans 1.5 to 4.0 in the data; inputs outside the training ranges get a warning.
+- **One model for every loan type.** Loan types change the rules and assumptions only; the model has no loan-type information.
 - **Prototype gate.** The manager password is not real authentication.
 
 ## What a lender would need to provide to take this further
 
-- **Its real credit-policy thresholds** and which rules are hard rules, replacing every placeholder in `config/policy.yaml` (the full list is at the top of [reports/decisions_log.md](reports/decisions_log.md)).
+- **Its real credit-policy thresholds** and which rules are hard rules, replacing every placeholder in `config/policies/`, with one profile per product (the full list is at the top of [reports/decisions_log.md](reports/decisions_log.md)).
 - **Repayment outcome data** for disbursed loans, to build a separate default-risk model with its own target.
 - **Integration with its systems** (loan origination, credit bureau pulls, product interest rates and existing EMIs).
 - **Proper authentication and audit logging** for staff, replacing the prototype gate.

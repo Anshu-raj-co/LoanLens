@@ -8,6 +8,7 @@ from typing import Any
 import streamlit as st
 
 from loanlens import model as model_mod
+from loanlens import registry
 from loanlens.config import Policy, load_policy
 from loanlens.presentation import DISCLAIMER, PROTOTYPE_NOTICE
 from loanlens.theme import css_block, header_html
@@ -39,7 +40,7 @@ def get_policy() -> Policy:
         return load_policy()
     except Exception:  # noqa: BLE001 - never show a stack trace to the user
         st.error(
-            "The policy settings file (config/policy.yaml) could not be read. "
+            "The policy settings files (config/policies/) could not be read. "
             "Please ask the administrator to check it."
         )
         footer()
@@ -61,6 +62,8 @@ def get_model() -> dict[str, Any]:
             "The prediction model has not been trained yet, so results cannot be shown. "
             "Ask the administrator to run `python -m loanlens.model` and reload this page."
         )
+    except registry.RegistryError as exc:  # plain message, e.g. a fingerprint mismatch
+        st.error(f"The prediction model could not be loaded. {exc}")
     except Exception:  # noqa: BLE001
         st.error(
             "The prediction model could not be loaded. Ask the administrator to retrain it "

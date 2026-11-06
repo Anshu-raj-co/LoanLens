@@ -12,11 +12,13 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 3. [Two short stories](#two-short-stories)
 4. [The data](#the-data)
 5. [How a decision is made](#how-a-decision-is-made)
-6. [What the colours and labels mean](#what-the-colours-and-labels-mean)
-7. [What LoanLens is not](#what-loanlens-is-not)
-8. [Honest limits](#honest-limits)
-9. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
-10. [Glossary](#glossary)
+6. [Different kinds of loan](#different-kinds-of-loan)
+7. [Keeping a record](#keeping-a-record)
+8. [What the colours and labels mean](#what-the-colours-and-labels-mean)
+9. [What LoanLens is not](#what-loanlens-is-not)
+10. [Honest limits](#honest-limits)
+11. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
+12. [Glossary](#glossary)
 
 **[Part 2: Technical deep dive](#part-2-technical-deep-dive)**
 1. [Architecture](#1-architecture)
@@ -77,6 +79,18 @@ LoanLens works in four plain steps:
 3. **It compares you with past examples.** A pattern-finding program (a "model") learned from the past applications which kinds of profile were usually approved. It gives a likelihood, from very unlikely to very likely.
 4. **It explains itself.** It shows which of your details helped or hurt the most, compares each with typical approved applicants, and works out the smallest change that would probably flip a "no".
 
+## Different kinds of loan
+
+You can choose what the loan is for: a **personal loan** (the starting choice), a **home loan** or a **vehicle loan**. Each kind has its own basic rules. A home loan may be paid back over up to 30 years and may be up to 6 times your yearly income. A vehicle loan must be paid back within 7 years and may be at most one and a half times your yearly income. Each kind also assumes a different interest rate when it works out the monthly payment.
+
+Choosing a kind of loan changes **only the basic rules**. It does not change the pattern-finding program, which learned from one set of made-up applications that never said what each loan was for. All of these rules are examples, not any lender's real rules.
+
+## Keeping a record
+
+Every answer notes which set of rules and which version of the pattern-finding program produced it, so it can always be traced back. LoanLens keeps a list of every version of the program it has ever made, with a fingerprint of each one. If the program's file has been changed by accident, the fingerprint no longer matches and LoanLens refuses to use it.
+
+When a bank manager checks a whole list of applications, LoanLens saves only a short summary (how many were approved and rejected, and the most common reasons), never the people's details. That summary can go into a small file on the computer or into a larger shared database.
+
 ## What the colours and labels mean
 
 | What you see | What it means |
@@ -133,9 +147,10 @@ Colour is never the only signal: the status is always written as a word too ("Ap
 flowchart LR
     RAW["data/raw/<br/>loan_approval_dataset.csv"] --> CLEAN["cleaning.py<br/>strip, map target,<br/>negative assets to 0"]
     CLEAN --> FEAT["features.py<br/>EMI, loan-to-income,<br/>total assets, loan-to-assets"]
-    CFG["config/policy.yaml<br/>(all PLACEHOLDER)"] --> RULES
+    CFG["config/policies/<br/>personal, home, vehicle<br/>(all PLACEHOLDER)"] --> RULES
     FEAT --> RULES["rules.py<br/>enforced + advisory rules"]
     FEAT --> MODEL["model.py<br/>monotone XGBoost,<br/>isotonic calibration"]
+    REG["models/registry.json<br/>versions + SHA-256"] --> MODEL
     MODEL --> EXPLAIN["explain.py<br/>TreeSHAP reasons,<br/>what would change"]
     RULES --> DECIDE["decision.py<br/>decide() / decide_many()"]
     MODEL --> DECIDE
@@ -144,11 +159,11 @@ flowchart LR
     DECIDE --> CUST["Check My Eligibility<br/>(single applicant)"]
     DECIDE --> BATCH["batch.py<br/>CSV in, results out"]
     BATCH --> BULK["Bulk Check page"]
-    BATCH --> STORE["storage.py<br/>SQLite: anonymised<br/>batch summaries"]
+    BATCH --> STORE["storage.py + db/<br/>SQLAlchemy, Alembic:<br/>anonymised batch summaries<br/>(SQLite or PostgreSQL)"]
     STORE --> ANALYTICS["Analytics page"]
 ```
 
-The Streamlit pages in `app/` contain layout only; every decision, rule, explanation and text template lives in `src/loanlens/`. All thresholds come from `config/policy.yaml`.
+The Streamlit pages in `app/` contain layout only; every decision, rule, explanation and text template lives in `src/loanlens/`. All thresholds come from the policy profiles in `config/policies/`.
 
 ## 2. Data
 
@@ -198,7 +213,7 @@ The dataset has no interest rate, so **r uses an assumed 10% a year (`emi.assume
 
 ## 4. Policy rules engine
 
-Each rule in `config/policy.yaml` has a `value` and an `enforce` flag, validated by `config.py`. An enforced failure means **Rejected, whatever the model says**; an advisory failure only adds a warning. A value exactly at a threshold passes.
+Each rule in a policy profile has a `value` and an `enforce` flag, validated by `config.py`. The table shows the default `personal` profile, which reproduces the original `config/policy.yaml` exactly. An enforced failure means **Rejected, whatever the model says**; an advisory failure only adds a warning. A value exactly at a threshold passes.
 
 | Rule | Value | Enforced | Data-based reasoning |
 |---|---|---|---|
@@ -209,6 +224,10 @@ Each rule in `config/policy.yaml` has a `value` and an `enforce` flag, validated
 | `max_emi_to_income` | 50% | **No (advisory)** | Would fail 47.4% of approved applicants (1,260 of 2,656) at the assumed rate, so enforcing it would contradict the data. A real FOIR policy and real rates are needed. |
 
 Rule of thumb for the enforce flags: a ratio rule is enforced only if it fails fewer than 5% of approved applicants; a test fails if config and data ever disagree. `python -m loanlens.rules` writes `reports/rules_vs_labels.md`.
+
+**Policy profiles.** `config/policies/` holds one YAML file per loan type (`personal`, `home`, `vehicle`), each with `profile`, `version` (semantic version, validated), `description` and the rule, EMI, model and display settings. `load_profile(name)` validates the name (lower-case letters, digits, underscore; anything else, including path tricks, is an `UnknownProfileError` that lists the valid names), loads and caches the file, and computes `content_hash`: the SHA-256 of the validated settings as canonical JSON, so comments and spacing do not change it but any value does. `load_policy()` returns `personal`, so older code is unchanged. Home differs by term 5-30 years, loan-to-income 6.0x, loan-to-assets 2.0x and an assumed 8.5% rate; vehicle by term 1-7 years, 1.5x, 1.0x and 11%. The model settings (threshold, borderline band and margin) are the same in every profile. The batch, storage and cleaning sections are app-wide and read from `personal`.
+
+Profiles change rules and assumptions only, never the model, which has no loan-type feature. Values a profile allows but the model never saw (terms above 20 years, loan-to-income above 4.0) trigger the existing out-of-range warning.
 
 ## 5. Modelling
 
@@ -250,6 +269,8 @@ Compact features: `cibil_score`, `loan_term`, `loan_to_income`, `income_annum`, 
 
 No identifier or target-derived feature is used and there are no duplicate rows. The near-perfect scores come from the near-deterministic synthetic label, not from leakage. Feature importance (mean absolute SHAP share): CIBIL 57%, loan term 19%, total assets 12%, income 7%, loan-to-income 4%.
 
+**Model registry.** `models/registry.json` (validated with Pydantic in `registry.py`) lists every version with `version`, `created_at`, `training_data_hash` (SHA-256 of the processed CSV), `features`, `cv_metrics`, `artifact` (`loanlens_model_<version>.joblib`), `artifact_sha256`, `artifact_bytes` and `status`; exactly one entry is `active`. `python -m loanlens.model` cross-validates, trains, saves a new version (next minor version by default, or `--version`), registers it and activates it unless `--no-activate` is given; older artifacts are kept. `--list` prints the registry and `--activate <version>` switches the active version after verifying its file. `load_artifact()` picks `LOANLENS_MODEL_VERSION` or the active version, compares the file's SHA-256 with the registry and raises `ArtifactIntegrityError` on a mismatch. The pre-registry `models/loanlens_model.joblib` was migrated once: renamed to `loanlens_model_1.0.0.joblib` with identical bytes (SHA-256 `49b800ef9416...`), so predictions are unchanged. Writes are atomic (temporary file, then replace).
+
 ## 6. Explainability
 
 `explain.py` uses **TreeSHAP** on the calibrated model's single base estimator.
@@ -264,11 +285,11 @@ No identifier or target-derived feature is used and there are no duplicate rows.
 
 `decision.py` is the single source of truth. `decide_many()` is a **vectorised core** (features, rules, one `predict_proba` call, SHAP on the whole batch, and candidate scoring for "what would change" in one model call). `decide()` validates one applicant and calls the same core with one row, so customer mode and Bulk Check are identical by construction.
 
-For each application: validate → rules → model probability `p` → Approved if no enforced rule failed and `p` ≥ 0.5 → borderline flag → reasons, positive factors, changes and warnings. The output `DecisionResult` holds `status`, `probability`, `borderline`, `reasons`, `what_would_change`, `rule_results`, `warnings` and `positive_factors`.
+For each application: validate → rules → model probability `p` → Approved if no enforced rule failed and `p` ≥ 0.5 → borderline flag → reasons, positive factors, changes and warnings. The output `DecisionResult` holds `status`, `probability`, `borderline`, `reasons`, `what_would_change`, `rule_results`, `warnings` and `positive_factors`, plus the provenance fields `profile`, `policy_version`, `policy_hash` and `model_version`. `decide()` and `decide_many()` take an optional `profile` (an explicit `policy` object wins).
 
 **Borderline** ("manual review recommended") is set when (no enforced rule failed and 0.4 ≤ `p` ≤ 0.6) or (CIBIL within ±25 points of `min_cibil` and no *other* enforced rule failed). A manual review cannot override a different hard rule, so that case is not flagged.
 
-**Display bands.** The score never reads 0% or 100% (">99%" / "<1%") and carries a verbal band: Very likely ≥ 85%, Likely ≥ 65%, Borderline ≥ 35%, Unlikely ≥ 15%, else Very unlikely. The verbal "Borderline" band is deliberately wider than the borderline flag band; both are settings in `policy.yaml`.
+**Display bands.** The score never reads 0% or 100% (">99%" / "<1%") and carries a verbal band: Very likely ≥ 85%, Likely ≥ 65%, Borderline ≥ 35%, Unlikely ≥ 15%, else Very unlikely. The verbal "Borderline" band is deliberately wider than the borderline flag band; both are settings in the policy profiles.
 
 ## 8. Batch pipeline
 
@@ -277,13 +298,16 @@ For each application: validate → rules → model probability `p` → Approved 
 - **Reading:** delimiter detection (comma, semicolon, tab, pipe), UTF-8 with BOM tolerated and a cp1252 fallback, blank lines skipped, a 50,000-row limit with a clear message.
 - **Headers:** normalised (case, spaces) and mapped through an alias table (e.g. "Income" → `income_annum`, "Tenure" → `loan_term`). Missing required columns are named exactly; duplicates that map to the same column are an error; unknown columns are ignored.
 - **Row validation:** vectorised, using the same limits and messages as the customer form (read from the Pydantic schema so they cannot drift). Amounts like "12,50,000" or "Rs 5,00,000" are accepted. Bad rows are reported with spreadsheet row numbers and skipped; the app never crashes.
+- **Loan type:** an optional `product` column (aliases such as "Loan type"); blank means `personal`, an unknown value is a row error that names the valid types. Within each chunk, rows are grouped by product and each group is decided under its own profile; output order is preserved and a `product` column is added to the results.
 - **Scoring:** `decide_many()` in chunks of 2,000 rows (drives the progress bar and bounds memory).
 - **Measured speed:** 1,000 rows 0.7 s, 10,000 rows 6.2 s, 50,000 rows 16-32 s.
-- **Storage:** `storage.py` writes one anonymised row per batch to SQLite (counts, approval rate, likelihood-band counts, top rejection reason codes, model version). No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off).
+- **Storage:** `storage.py` writes one anonymised row per batch (counts, approval rate, likelihood-band counts, top rejection reason codes, model version). No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off).
+
+**Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revision `0001_initial`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; the Bulk Check page still shows results and notes that the summary was not saved. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set.
 
 ## 9. UI and theme
 
-Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and About. `app/ui_common.py` adds the header strip (the title "LoanLens" only), sidebar, prototype notice and footer to every page, and turns errors (missing model, bad policy file) into friendly messages; `.streamlit/config.toml` hides stack traces.
+Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and About. `app/ui_common.py` adds the header strip (the title "LoanLens" only), sidebar, prototype notice and footer to every page, and turns errors (missing model, model file that fails its hash check, bad policy file) into friendly messages; the customer form has a **Loan type** selector and the About page lists every profile's values side by side and every registered model version; `.streamlit/config.toml` hides stack traces.
 
 `src/loanlens/theme.py` is the single home for every colour, the status-to-colour mapping, the CSS and the Plotly template. Approved is green, Rejected red, borderline amber, neutral series blue, on a white background.
 
@@ -291,7 +315,7 @@ Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and Abou
 
 ## 10. Testing
 
-281 tests (pytest), 98% coverage of `src/loanlens`, `ruff` clean. Categories:
+376 tests passing, 3 PostgreSQL tests skipped without a database (pytest), 98% coverage of `src/loanlens`, `ruff` clean. Categories:
 
 - cleaning, features and EMI, each policy rule and its thresholds (including values exactly at each limit), config validation;
 - schema validation and friendly messages;
@@ -299,7 +323,8 @@ Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and Abou
 - decision orchestration (**every rejection has a non-empty reason**, enforced rules override the model, suggestions only raise CIBIL or lower the loan and actually flip the result, a decision in under 2 seconds);
 - batch validation (good CSV, bad rows, missing columns, empty, BOM-only and header-only files, other delimiters, aliases, too many rows, 1,000 rows in 10 s or less);
 - the **single-versus-batch consistency test**: 600 rows of the test file give exactly the same status, probability (within 1e-6), reasons and borderline flag through `decide()` and through the batch path;
-- storage anonymity, theme and contrast, the benchmark notebook's isolation, and headless page tests (Streamlit AppTest) for every page.
+- storage anonymity, theme and contrast, the benchmark notebook's isolation, and headless page tests (Streamlit AppTest) for every page;
+- the database layer (migrations, round trip, legacy databases, URL handling, friendly errors; on PostgreSQL too when configured), policy profiles (personal reproduces the six example decisions, each profile's rules apply, unknown profiles, the content hash, the `product` column) and the model registry (round trip, activation, environment override, hash mismatch, legacy migration, CLI, unchanged predictions).
 
 The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), with 20 deliberately bad rows. Tests that need the Kaggle data or the model skip themselves cleanly on a fresh clone.
 
@@ -314,16 +339,17 @@ The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), wi
 ## 12. Security and privacy
 
 - **Customer mode stores nothing:** inputs live in memory for the request only.
-- **Bulk Check** stores only anonymised batch summaries in a local SQLite file.
+- **Bulk Check** stores only anonymised batch summaries, in a local SQLite file or the database named by `DATABASE_URL` (ORM or parameterised statements only; the URL is never logged or shown).
 - **Manager gate:** a prototype gate, not authentication. The password comes from `LOANLENS_MANAGER_PASSWORD`, then the Streamlit secret `manager_password`, then the documented local demo default `loanlens-demo` (the sidebar says when it is in use). Comparison is constant-time. Set your own password before showing the app to anyone, and never host it publicly with the demo password.
-- **Gitignored:** `data/raw/` and `data/processed/` (third-party data), `models/` (rebuilt by one command), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
+- **Gitignored:** `data/raw/` and `data/processed/` (third-party data), archived model versions (the registry and the active 0.4 MB artifact are committed), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
 
 ## 13. Assumptions, placeholders and future work
 
 Every value below is illustrative; a lender would replace it with its own credit policy (full list with reasoning at the top of [reports/decisions_log.md](reports/decisions_log.md)):
 
-- rule thresholds and enforce flags: `min_cibil` 550, `max_loan_to_income` 4.0, `max_loan_to_assets` 1.5, loan term 2-20 years (all enforced), `max_emi_to_income` 50% (advisory);
-- assumed annual interest rate 10%;
+- rule thresholds and enforce flags (personal profile): `min_cibil` 550, `max_loan_to_income` 4.0, `max_loan_to_assets` 1.5, loan term 2-20 years (all enforced), `max_emi_to_income` 50% (advisory);
+- assumed annual interest rate 10% (personal);
+- the home profile (term 5-30 years, 6.0x income, 2.0x assets, 8.5%) and the vehicle profile (term 1-7 years, 1.5x income, 1.0x assets, 11%);
 - approval threshold 0.5; borderline band 40-60%; borderline CIBIL margin ±25 points;
 - likelihood bands 85 / 65 / 35 / 15%;
 - batch limit 50,000 rows; negative assets set to 0;

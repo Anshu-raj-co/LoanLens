@@ -1,0 +1,87 @@
+{
+  "features": [
+    "cibil_score",
+    "loan_term",
+    "loan_to_income",
+    "income_annum",
+    "total_assets"
+  ],
+  "kind": "xgboost",
+  "monotone": {
+    "cibil_score": 1,
+    "loan_to_income": -1
+  },
+  "calibration": "isotonic",
+  "version": "1.0.0",
+  "trained_at": "2026-11-05T19:18:04+00:00",
+  "n_train": 4269,
+  "seed": 42,
+  "training_ranges": {
+    "no_of_dependents": [
+      0.0,
+      5.0
+    ],
+    "income_annum": [
+      200000.0,
+      9900000.0
+    ],
+    "loan_amount": [
+      300000.0,
+      39500000.0
+    ],
+    "loan_term": [
+      2.0,
+      20.0
+    ],
+    "cibil_score": [
+      300.0,
+      900.0
+    ],
+    "residential_assets_value": [
+      0.0,
+      29100000.0
+    ],
+    "commercial_assets_value": [
+      0.0,
+      19400000.0
+    ],
+    "luxury_assets_value": [
+      300000.0,
+      39200000.0
+    ],
+    "bank_asset_value": [
+      0.0,
+      14700000.0
+    ],
+    "loan_to_income": [
+      1.5,
+      4.0
+    ]
+  },
+  "benchmarks": {
+    "no_of_dependents": 2.5,
+    "income_annum": 5000000.0,
+    "loan_amount": 14600000.0,
+    "loan_term": 10.0,
+    "cibil_score": 711.0,
+    "residential_assets_value": 5400000.0,
+    "commercial_assets_value": 3700000.0,
+    "luxury_assets_value": 14400000.0,
+    "bank_asset_value": 4500000.0,
+    "emi": 210533.97655421923,
+    "emi_to_income": 0.4854278362439197,
+    "loan_to_income": 3.0496913580246914,
+    "total_assets": 31000000.0,
+    "loan_to_assets": 0.4719085361576769
+  },
+  "cv_metrics": {
+    "roc_auc": 0.9942,
+    "pr_auc": 0.9946,
+    "precision": 0.9527,
+    "recall": 0.9759,
+    "f1": 0.9639,
+    "accuracy": 0.9546,
+    "brier": 0.0257,
+    "log_loss": 0.0803
+  }
+}

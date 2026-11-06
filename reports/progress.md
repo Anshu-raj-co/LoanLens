@@ -177,10 +177,10 @@
 - `src/loanlens/theme.py`: the single home for every colour (palette plus darker text shades for contrast), the status-to-colour mapping, the shared CSS, the Plotly template, and small HTML helpers (header strip, pill, policy-check list, status table styling).
 - `.streamlit/config.toml`: light base theme with the palette; stack traces stay hidden.
 - Every page gets the CSS and a branded header strip via `app/ui_common.py`.
-- Customer result: a large green/red banner with ✅/❌ status, amber borderline pill, and the likelihood inside it. Reason cards red, positive cards green, "what would change" blue, warnings amber, and policy checks with ✓/✗.
-- Bulk Check: coloured metric cards, a ✅/❌ status column coloured green/red (up to 5,000 visible rows), and an amber skipped-rows panel. The CSV download is unchanged.
+- Customer result: a large green/red banner with [tick]/[cross] status, amber borderline pill, and the likelihood inside it. Reason cards red, positive cards green, "what would change" blue, warnings amber, and policy checks with [tick mark]/[cross mark].
+- Bulk Check: coloured metric cards, a [tick]/[cross] status column coloured green/red (up to 5,000 visible rows), and an amber skipped-rows panel. The CSV download is unchanged.
 - Charts and notebooks share the Plotly template (Approved green, Rejected red, neutral blue, white background). Notebooks 02 and 03 were re-executed.
-- `reports/example_decisions.md` uses ✅/❌/⚠️.
+- `reports/example_decisions.md` uses [tick]/[cross]/[warning sign].
 - Screenshots of every page are in `reports/screenshots/`.
 
 **Test results**
@@ -259,3 +259,14 @@
 - Emoji removed from the app, the UI modules, the example-decisions script and report, README, USER_GUIDE and PROJECT_EXPLAINED (102 emoji characters). Status is shown by colour plus the words Approved / Rejected / Borderline - manual review recommended; policy checks show Passed / Failed / Advisory.
 - The yellow disclaimer box is gone from Home (the text remains in every footer, on About and in README). The header strip shows only "LoanLens" at 2.4rem bold.
 - New `tests/test_no_emoji.py` scans source files and rendered pages. All screenshots retaken. Example decisions are identical to before (decisions_log D-068, D-069).
+
+## Milestone 1: database layer, policy profiles, model registry (done)
+- **Database:** SQLAlchemy 2 + Alembic (`src/loanlens/db/`, revision `0001_initial`). `DATABASE_URL`, default `sqlite:///data/loanlens.sqlite`; PostgreSQL via psycopg. `storage.py` rebuilt on it with identical behaviour; database failures give a plain message. The existing local database was adopted without data loss (checked on a copy).
+- **Policy profiles:** `config/policies/` with personal (the original values, unchanged), home and vehicle. Each has a semantic version and a content hash; results record profile, policy version, policy hash and model version. Adds the loan-type selector, the optional `product` CSV column and all profiles on About.
+- **Model registry:** `models/registry.json`, versioned artifacts, `--list` / `--activate`, `LOANLENS_MODEL_VERSION`, SHA-256 check on load. The existing artifact was registered as 1.0.0 with identical bytes.
+- **Checks on 2026-11-06 (this Windows machine):**
+  - 376 tests passed and 3 PostgreSQL tests skipped (no database available; Docker's engine was not running). Coverage of `src/loanlens` is 98%, and ruff is clean.
+  - The six example decisions are byte-identical to before, and `reports/example_decisions.md` regenerated unchanged.
+  - The app ran with all five pages and a 1,000-row upload, with no server-log errors (screenshot run).
+- **Not repeated:** the fresh-clone verification.
+- Decisions: D-070 to D-073.

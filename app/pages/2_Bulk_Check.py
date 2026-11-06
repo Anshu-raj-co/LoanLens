@@ -16,6 +16,7 @@ from ui_common import (
 )
 
 from loanlens import access, batch, storage
+from loanlens.config import DEFAULT_PROFILE, list_profiles
 from loanlens.formatting import SCORE_LABEL
 from loanlens.presentation import PROTOTYPE_NOTICE, thresholds_note
 from loanlens.theme import STYLED_ROWS_LIMIT, status_display_frame, style_status_column
@@ -62,8 +63,8 @@ st.caption(
     "Only an anonymised summary of each batch (counts, approval rate, top rejection reasons) "
     "is saved. Names, IDs and applicant details are not stored."
     if not policy.storage.store_applicant_ids
-    else "Storage of applicant IDs is ENABLED in config/policy.yaml: per-row IDs and "
-    "statuses are saved with the batch summary."
+    else "Storage of applicant IDs is ENABLED in config/policies/personal.yaml: per-row IDs "
+    "and statuses are saved with the batch summary."
 )
 
 # ---- Template and upload -------------------------------------------------------------------
@@ -71,7 +72,11 @@ st.subheader("1. Prepare your file")
 st.markdown(
     f"Upload a CSV with one applicant per row, **up to {max_rows:,} rows**. Required columns: "
     + ", ".join(f"`{c}`" for c in batch.REQUIRED_COLUMNS)
-    + f". An optional `{batch.ID_COLUMN}` column is copied to the results. Headers are matched "
+    + f". An optional `{batch.ID_COLUMN}` column is copied to the results. An optional "
+    f"`{batch.PRODUCT_COLUMN}` column sets each row's loan type ("
+    + ", ".join(list_profiles())
+    + f"; blank means {DEFAULT_PROFILE}); any other value is reported as a row problem. "
+    "Loan types change the rules and assumptions, not the model. Headers are matched "
     "ignoring case and spaces, and common names such as *Income* or *annual_income* are "
     "recognised. Amounts may be written like 12,50,000."
 )
@@ -125,12 +130,14 @@ if st.session_state.get("batch_key") != key:
     summary = batch.summarise(results, parsed)
     try:
         storage.save_summary(summary, str(artifact.get("version", "unknown")), results, policy)
-        saved = True
+        saved, save_note = True, ""
+    except storage.DatabaseError as exc:  # plain message, never a stack trace
+        saved, save_note = False, str(exc)
     except Exception:  # noqa: BLE001 - storage problems must not block the results
-        saved = False
+        saved, save_note = False, "The anonymised summary could not be saved this time."
     st.session_state.update(
         batch_key=key, batch_parsed=parsed, batch_results=results, batch_summary=summary,
-        batch_saved=saved,
+        batch_saved=saved, batch_save_note=save_note,
     )  # fmt: skip
 
 parsed = st.session_state["batch_parsed"]
@@ -156,7 +163,8 @@ if parsed.errors:
 else:
     st.success(f"All {parsed.total_rows:,} rows passed validation.")
 if not st.session_state.get("batch_saved", True):
-    st.caption("Note: the anonymised summary could not be saved this time.")
+    note = st.session_state.get("batch_save_note") or "The summary could not be saved."
+    st.caption(f"Note: {note}")
 
 if results.empty:
     st.error("No valid rows to score. Please fix the problems listed above and upload again.")

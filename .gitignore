@@ -9,9 +9,14 @@ __pycache__/
 .venv/
 .env
 
-# Model artifacts
+# Model artifacts: archived versions stay local. The registry and the active artifact
+# (about 0.4 MB) are committed so a fresh clone works without retraining. After activating
+# a different version, update the two artifact lines below to its file names.
 models/*
 !models/.gitkeep
+!models/registry.json
+!models/loanlens_model_1.0.0.joblib
+!models/loanlens_model_1.0.0.json
 
 # Raw data (large / third-party; never commit bank data)
 data/raw/*

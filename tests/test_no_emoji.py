@@ -22,14 +22,14 @@ EMOJI = re.compile(
     "["
     "\U0001f000-\U0001faff"  # emoticons, pictographs, transport, flags, supplemental symbols
     "\U000e0000-\U000e007f"  # tag characters (flag sequences)
-    "←-⇿"  # arrows
-    "⌀-⏿"  # misc technical (watch, hourglass, ...)
-    "■-◿"  # geometric shapes
-    "☀-➿"  # misc symbols and dingbats (check marks, crosses, warning, ...)
-    "⬀-⯿"  # misc symbols and arrows (stars, ...)
-    "‼⁉™ℹ⃣〰〽㊗㊙"
-    "︀-️"  # variation selectors
-    "‍"  # zero-width joiner
+    "\u2190-\u21ff"  # arrows
+    "\u2300-\u23ff"  # misc technical (watch, hourglass, ...)
+    "\u25a0-\u25ff"  # geometric shapes
+    "\u2600-\u27bf"  # misc symbols and dingbats (check marks, crosses, warning, ...)
+    "\u2b00-\u2bff"  # misc symbols and arrows (stars, ...)
+    "\u203c\u2049\u2122\u2139\u20e3\u3030\u303d\u3297\u3299"
+    "\ufe00-\ufe0f"  # variation selectors
+    "\u200d"  # zero-width joiner
     "]"
 )
 # Streamlit shortcodes such as :white_check_mark: or :material/check: (Sphinx roles like
@@ -40,7 +40,7 @@ UI_SOURCES = sorted((PROJECT_ROOT / "app").rglob("*.py")) + sorted(
     (PROJECT_ROOT / "src" / "loanlens").glob("*.py")
 )
 RENDERED_TEXT = [
-    PROJECT_ROOT / "config" / "policy.yaml",
+    *sorted((PROJECT_ROOT / "config" / "policies").glob("*.yaml")),
     PROJECT_ROOT / "reports" / "model_card.md",
 ]
 PAGES = [
@@ -59,8 +59,11 @@ def find_emoji(text: str) -> list[str]:
 
 
 def test_detector_catches_known_emoji() -> None:
-    for sample in ("✅", "❌", "⚠️", "⚖", "🔎", "ℹ️", "➡", "◎", "✓", "✗", ":white_check_mark:",
-                   ":material/check:"):  # fmt: skip
+    samples = (
+        "\u2705", "\u274c", "\u26a0\ufe0f", "\u2696", "\U0001f50e", "\u2139\ufe0f", "\u27a1",
+        "\u25ce", "\u2713", "\u2717", ":white_check_mark:", ":material/check:",
+    )  # fmt: skip
+    for sample in samples:
         assert find_emoji(f"x {sample} y"), sample
     for clean in ("Approved", "Borderline - manual review recommended", ":func:`decide`",
                   "12:30:45", "https://example.com", "Rs 12,50,000 (12.5 lakh)"):  # fmt: skip

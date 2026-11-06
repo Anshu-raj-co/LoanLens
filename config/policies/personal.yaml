@@ -1,0 +1,75 @@
+# LoanLens policy profile: personal loans (the default profile).
+# Single source of truth for every threshold used by the decision logic for this loan type.
+# All values below are PLACEHOLDERS: illustrative values only. A lender would
+# replace them with its own credit policy. Do not treat them as real lending policy.
+#
+# A profile changes the rules and assumptions only. Every profile uses the same trained
+# model, which learned from one synthetic dataset with no loan-type information.
+#
+# This profile reproduces the original config/policy.yaml exactly. The batch, storage and
+# cleaning sections are app-wide settings and are read from this default profile only.
+#
+# Each rule has:
+#   value:   the threshold
+#   enforce: true  -> a failed rule makes the decision Rejected, with that rule as the reason
+#            false -> advisory only: a failed rule is shown as a warning, status unchanged
+# The enforce choices for the three ratio rules are backed by reports/rules_vs_labels.md.
+
+profile: personal
+version: "1.0.0"
+description: Personal loan (default). Illustrative placeholder values.
+
+rules:
+  min_cibil:                  # pass if cibil_score >= value
+    value: 550                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_emi_to_income:          # pass if monthly EMI / monthly income <= value
+    value: 0.50               # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: false            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (fails 47% of approved applicants, see rules_vs_labels.md)
+  max_loan_to_income:         # pass if loan amount / annual income <= value
+    value: 4.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_to_assets:         # pass if loan amount / total assets <= value
+    value: 1.5                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  min_loan_term_years:        # pass if loan_term >= value
+    value: 2                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_term_years:        # pass if loan_term <= value
+    value: 20                 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+
+emi:
+  assumed_annual_interest_rate: 0.10  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (dataset has no rate)
+
+model:
+  approval_threshold: 0.5     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  borderline_band:
+    lower: 0.4                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    upper: 0.6                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  # A result is also borderline when CIBIL is within this many points of the enforced
+  # min_cibil threshold, on either side (milestone 2 review, decision 3).
+  borderline_cibil_margin: 25 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+
+display:
+  # Verbal bands shown next to the model score. Each value is the band's lower bound
+  # (Very likely >= 0.85, Likely 0.65-0.85, Borderline 0.35-0.65, Unlikely 0.15-0.35,
+  # Very unlikely < 0.15). Display only: stored probabilities are never changed.
+  probability_bands:
+    very_likely: 0.85         # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    likely: 0.65              # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    borderline: 0.35          # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    unlikely: 0.15            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+
+batch:
+  max_rows: 50000             # largest CSV accepted in Bulk Check (set from measured speed)
+  chunk_size: 2000            # rows scored per step (drives the progress bar and memory use)
+
+storage:
+  db_path: data/loanlens.sqlite   # SQLite file for anonymised batch summaries (gitignored)
+  store_applicant_ids: false      # true also stores per-row applicant IDs and statuses
+
+cleaning:
+  # How to treat negative residential_assets_value (data errors).
+  # Options: "clip_zero" (set to 0), "drop" (remove rows), "nan" (set to missing).
+  negative_assets_strategy: clip_zero

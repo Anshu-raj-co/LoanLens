@@ -6,11 +6,15 @@ import streamlit as st
 from ui_common import footer, get_policy, setup_page
 
 from loanlens import model as model_mod
-from loanlens.config import PROJECT_ROOT
+from loanlens import registry
+from loanlens.config import PROJECT_ROOT, load_all_profiles
 from loanlens.presentation import (
     BENCHMARK_SUMMARY,
+    PROFILE_NOTE,
     borderline_explainer,
-    policy_table,
+    profile_label,
+    profiles_table,
+    registry_table,
     thresholds_note,
 )
 
@@ -48,16 +52,44 @@ with c2, st.container(border=True):
             f"precision {m.get('precision', float('nan')):.3f}, "
             f"recall {m.get('recall', float('nan')):.3f}."
         )
+        st.caption(
+            f"Active registered version: {art.get('version')}. The same model scores every "
+            "loan type."
+        )
     except FileNotFoundError:
         st.warning("The model has not been trained yet (run `python -m loanlens.model`).")
+    except registry.RegistryError as exc:
+        st.warning(str(exc))
 
-st.subheader("Current policy settings")
+st.subheader("Model versions")
+try:
+    reg = registry.load_registry()
+    st.dataframe(registry_table(reg), hide_index=True, use_container_width=True)
+    st.caption(
+        "Every trained model is recorded in `models/registry.json` with its training-data "
+        "hash, features, cross-validated metrics and artifact hash. The app loads the active "
+        "version (or the one named by `LOANLENS_MODEL_VERSION`) and refuses a file whose hash "
+        "does not match."
+    )
+except registry.RegistryError as exc:
+    st.warning(str(exc))
+
+st.subheader("Policy settings by loan type")
 st.warning(thresholds_note(policy))
-st.dataframe(policy_table(policy), hide_index=True, use_container_width=True)
+st.info(PROFILE_NOTE)
+profiles = load_all_profiles()
+st.dataframe(profiles_table(profiles), hide_index=True, use_container_width=True)
+st.markdown(
+    "\n".join(
+        f"- **{profile_label(name)}** (profile `{name}`, v{p.version}, settings hash "
+        f"`{p.content_hash[:12]}`): {p.description}"
+        for name, p in profiles.items()
+    )
+)
 st.caption(
-    "Values come from `config/policy.yaml`. *Enforced* rules reject on failure; advisory "
-    "rules only add a warning. Every value is a placeholder, illustrative until replaced by a "
-    "lender's real credit policy."
+    "Values come from the profile files in `config/policies/` (`personal` is the default). "
+    "*Enforced* rules reject on failure; advisory rules only add a warning. Every value is a "
+    "placeholder, illustrative until replaced by a lender's real credit policy."
 )
 
 st.subheader("How the borderline flag works")

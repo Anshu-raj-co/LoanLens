@@ -96,8 +96,12 @@ with tab_model:
 
 with tab_batch:
     try:
-        latest = storage.latest_summary(storage.db_path(policy))
-        history = storage.list_summaries(10, storage.db_path(policy))
+        url = storage.resolve_url(policy=policy)
+        latest = storage.latest_summary(url=url)
+        history = storage.list_summaries(10, url=url)
+    except storage.DatabaseError as exc:  # plain message, never a stack trace
+        latest, history = None, pd.DataFrame()
+        st.error(f"The batch history could not be read. {exc}")
     except Exception:  # noqa: BLE001 - never show a stack trace
         latest, history = None, pd.DataFrame()
         st.error("The batch history could not be read.")

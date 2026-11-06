@@ -18,13 +18,21 @@ def clean_df() -> pd.DataFrame:
     return pd.read_csv(cleaning.PROCESSED_PATH)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never use a developer's database or pinned model version."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("LOANLENS_MODEL_VERSION", raising=False)
+
+
 @pytest.fixture(scope="session")
 def artifact(clean_df: pd.DataFrame) -> dict[str, Any]:
-    """The saved model artifact; trains and saves it first if it is missing."""
-    if not model.MODEL_PATH.exists():
-        model.save_artifact(model.train_final(clean_df))
-        model.load_artifact.cache_clear()
-    return model.load_artifact()
+    """The active registered model; trains and registers one first if none exists."""
+    try:
+        return model.load_artifact()
+    except FileNotFoundError:
+        model.train_and_register(clean_df, model.data_hash(cleaning.PROCESSED_PATH))
+        return model.load_artifact()
 
 
 APP_DIR = cleaning.PROJECT_ROOT / "app"

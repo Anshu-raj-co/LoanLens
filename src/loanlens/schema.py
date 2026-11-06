@@ -84,6 +84,9 @@ class DecisionResult(BaseModel):
     rule_results: list[RuleResult]
     warnings: list[str]
     model_version: str
+    profile: str = Field(description="Policy profile (loan type) that was applied")
+    policy_version: str = Field(description="Semantic version of that profile")
+    policy_hash: str = Field(description="SHA-256 of the profile's validated settings")
 
 
 def _num(value: object) -> str:

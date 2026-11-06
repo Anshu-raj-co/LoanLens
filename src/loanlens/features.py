@@ -61,7 +61,7 @@ def emi(principal, term_years, annual_rate: float | None = None):
         principal: loan amount in INR.
         term_years: loan term in years.
         annual_rate: annual interest rate as a fraction; defaults to the assumed
-            rate in ``config/policy.yaml``.
+            rate in the policy profile.
     """
     if annual_rate is None:
         annual_rate = load_policy().emi.assumed_annual_interest_rate

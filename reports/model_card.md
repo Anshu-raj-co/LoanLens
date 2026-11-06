@@ -8,7 +8,7 @@ All numbers below come from `notebooks/03_modelling.ipynb` (stratified 5-fold cr
 
 | | |
 |---|---|
-| Artifact | `models/loanlens_model.joblib` (+ `.json` metadata), version `1.0.0` |
+| Artifact | `models/loanlens_model_1.0.0.joblib` (+ `.json` metadata), version `1.0.0`, registered as active in `models/registry.json` (artifact SHA-256 starts `49b800ef9416`; the same bytes as the original `models/loanlens_model.joblib`) |
 | Algorithm | XGBoost classifier (300 trees, max depth 4, learning rate 0.1) |
 | Calibration | Isotonic (`CalibratedClassifierCV`, 5-fold, `ensemble=False`) |
 | Monotone constraints | Approval can only **rise** with `cibil_score` and only **fall** with `loan_to_income` |
@@ -25,7 +25,7 @@ All numbers below come from `notebooks/03_modelling.ipynb` (stratified 5-fold cr
 
 ## How a decision is made
 
-The model is one step in `decision.py`: input validation, then the policy rules (`config/policy.yaml`), then the model, then the borderline flag. **An enforced rule failure (for example CIBIL below 550) always means Rejected, whatever the model says.** All policy thresholds are placeholders, illustrative until replaced by a lender's real credit policy.
+The model is one step in `decision.py`: input validation, then the policy rules (the selected profile in `config/policies/`, personal by default), then the model, then the borderline flag. **An enforced rule failure (for example CIBIL below 550) always means Rejected, whatever the model says.** All policy thresholds are placeholders, illustrative until replaced by a lender's real credit policy.
 
 A result is flagged **borderline (manual review recommended)** in two cases. The first is when no enforced rule failed and the probability is between 40% and 60%. The second is when the CIBIL score is within 25 points of the enforced minimum, on either side. The status is still Approved or Rejected.
 
@@ -131,5 +131,5 @@ The calibration curve is in the notebook. Isotonic calibration is step-shaped, s
 ## Assumptions
 
 - Assumed annual interest rate of 10% for EMI (placeholder).
-- Every policy threshold and enforce flag in `config/policy.yaml` is a placeholder, illustrative until replaced by a lender's real credit policy.
+- Every policy threshold and enforce flag in the profiles in `config/policies/` is a placeholder, illustrative until replaced by a lender's real credit policy.
 - Approval threshold 0.5; borderline band 0.4 to 0.6; borderline CIBIL margin of +/- 25 points; likelihood band cut-offs 85 / 65 / 35 / 15% (all placeholders).

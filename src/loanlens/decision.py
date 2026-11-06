@@ -25,7 +25,7 @@ import pandas as pd
 
 from loanlens import explain, rules
 from loanlens import model as model_mod
-from loanlens.config import Policy, load_policy
+from loanlens.config import Policy, resolve_policy
 from loanlens.formatting import inr, score_percent, times
 from loanlens.schema import (
     ApplicantInput,
@@ -86,6 +86,7 @@ def decide_many(
     artifact: dict[str, Any] | None = None,
     include_positive: bool = True,
     include_rule_results: bool = True,
+    profile: str | None = None,
 ) -> list[DecisionResult]:
     """Decide many *already validated* applications at once.
 
@@ -94,13 +95,18 @@ def decide_many(
 
     Args:
         values: one row per applicant with the :class:`ApplicantInput` columns.
-        policy: policy to apply; defaults to ``config/policy.yaml``.
-        artifact: trained model artifact; defaults to the saved model.
+        policy: policy to apply; when given it wins over ``profile``.
+        artifact: trained model artifact; defaults to the active registered model.
         include_positive: build positive factors for approved rows.
         include_rule_results: attach all six rule results to every row (customer mode).
             When False, ``rule_results`` holds only the failed rules.
+        profile: loan type whose policy profile to apply (default ``personal``). A profile
+            changes the rules and assumptions only; the model is the same for every profile.
+
+    Raises:
+        UnknownProfileError: ``profile`` names no profile (clear, user-facing message).
     """
-    policy = policy or load_policy()
+    policy = resolve_policy(profile, policy)
     artifact = artifact or model_mod.load_artifact()
     values = values[list(INPUT_COLUMNS)].reset_index(drop=True)
     n = len(values)
@@ -147,6 +153,7 @@ def decide_many(
         if col in ranges and col in frame.columns
     }
     margin = policy.model.borderline_cibil_margin
+    model_version = str(artifact.get("version", "unknown"))
     min_cibil = policy.rules.min_cibil.value
 
     results: list[DecisionResult] = []
@@ -207,7 +214,10 @@ def decide_many(
                 what_would_change=changes,
                 rule_results=rule_results,
                 warnings=warnings,
-                model_version=str(artifact.get("version", "unknown")),
+                model_version=model_version,
+                profile=policy.profile,
+                policy_version=policy.version,
+                policy_hash=policy.content_hash,
             )
         )
     return results
@@ -217,18 +227,24 @@ def decide(
     data: Mapping[str, Any] | ApplicantInput,
     policy: Policy | None = None,
     artifact: dict[str, Any] | None = None,
+    profile: str | None = None,
 ) -> DecisionResult | ValidationFailure:
     """Score one application and explain the outcome (customer mode).
 
     Args:
         data: raw applicant fields (dict) or an already validated :class:`ApplicantInput`.
-        policy: policy to apply; defaults to ``config/policy.yaml``.
-        artifact: trained model artifact; defaults to the saved model in ``models/``.
+        policy: policy to apply; when given it wins over ``profile``.
+        artifact: trained model artifact; defaults to the active registered model.
+        profile: loan type (``personal`` by default, or ``home`` / ``vehicle``).
 
     Returns:
         A :class:`DecisionResult`, or a :class:`ValidationFailure` (and no decision) when
         the input is invalid.
+
+    Raises:
+        UnknownProfileError: ``profile`` names no profile.
     """
+    policy = resolve_policy(profile, policy)
     applicant = validate_applicant(data)
     if isinstance(applicant, ValidationFailure):
         return applicant

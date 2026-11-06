@@ -25,12 +25,13 @@ import pandas as pd
 
 from loanlens import explain
 from loanlens.cleaning import normalise_column_name
-from loanlens.config import Policy, load_policy
+from loanlens.config import Policy, list_profiles, load_policy, load_profile
 from loanlens.decision import INPUT_COLUMNS, decide_many
 from loanlens.formatting import likelihood_band, score_percent
 from loanlens.schema import FIELD_LABELS, ApplicantInput
 
 ID_COLUMN = "applicant_id"
+PRODUCT_COLUMN = "product"  # optional loan type per row; blank means the default profile
 DELIMITERS = (",", ";", "\t", "|")
 
 # Normalised header -> canonical column. Canonical names map to themselves implicitly.
@@ -75,6 +76,11 @@ ALIASES: dict[str, str] = {
     "application_id": ID_COLUMN,
     "applicant": ID_COLUMN,
     "customer_id": ID_COLUMN,
+    # loan type
+    "loan_type": PRODUCT_COLUMN,
+    "product_type": PRODUCT_COLUMN,
+    "loan_product": PRODUCT_COLUMN,
+    "profile": PRODUCT_COLUMN,
 }
 REQUIRED_COLUMNS: tuple[str, ...] = INPUT_COLUMNS
 TEMPLATE_ROWS: tuple[dict[str, Any], ...] = (
@@ -134,6 +140,7 @@ class ParsedBatch:
     values: pd.DataFrame  # valid rows only, canonical input columns
     source_rows: np.ndarray  # spreadsheet row number of each valid row
     applicant_ids: pd.Series  # "" when the file has no ID column
+    products: pd.Series | None = None  # loan type of each valid row (None: no product column)
     errors: list[RowError] = field(default_factory=list)
     total_rows: int = 0
     renamed: dict[str, str] = field(default_factory=dict)  # original header -> canonical
@@ -222,7 +229,7 @@ def map_columns(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str], list
         BatchError: required columns missing (named exactly) or two headers that map to
             the same column.
     """
-    wanted = set(REQUIRED_COLUMNS) | {ID_COLUMN}
+    wanted = set(REQUIRED_COLUMNS) | {ID_COLUMN, PRODUCT_COLUMN}
     mapping: dict[str, str] = {}
     ignored: list[str] = []
     for col in frame.columns:
@@ -306,12 +313,27 @@ def _field_errors(name: str, raw: pd.Series) -> tuple[pd.Series, pd.Series]:
     return values, msg
 
 
-def validate_rows(frame: pd.DataFrame) -> ParsedBatch:
+def _product_errors(raw: pd.Series, default: str) -> tuple[pd.Series, pd.Series]:
+    """Return (normalised loan type per row, error message per row or '')."""
+    known = list_profiles()
+    products = raw.fillna("").astype(str).str.strip().str.lower().replace("", default)
+    msg = pd.Series("", index=raw.index, dtype=object)
+    unknown = ~products.isin(known)
+    msg[unknown] = [
+        f"Product '{str(v).strip()}' is not a known loan type. Use one of: {', '.join(known)}."
+        for v in raw[unknown]
+    ]
+    return products, msg
+
+
+def validate_rows(frame: pd.DataFrame, default_product: str | None = None) -> ParsedBatch:
     """Validate every row with the same limits as customer mode (vectorised).
 
     Invalid rows are reported (spreadsheet row number, ID if any, every problem in the row)
-    and left out of ``values``.
+    and left out of ``values``. An optional ``product`` column picks each row's loan type
+    (blank means ``default_product``, normally ``personal``); an unknown value is a row error.
     """
+    default_product = default_product or load_policy().profile
     n = len(frame)
     ids = (
         frame[ID_COLUMN].fillna("").astype(str).str.strip()
@@ -323,6 +345,11 @@ def validate_rows(frame: pd.DataFrame) -> ParsedBatch:
     for name in REQUIRED_COLUMNS:
         values, msg = _field_errors(name, frame[name])
         parsed[name] = values
+        has = msg != ""
+        problems[has] = np.where(problems[has] == "", msg[has], problems[has] + " " + msg[has])
+    products = None
+    if PRODUCT_COLUMN in frame.columns:
+        products, msg = _product_errors(frame[PRODUCT_COLUMN], default_product)
         has = msg != ""
         problems[has] = np.where(problems[has] == "", msg[has], problems[has] + " " + msg[has])
     valid = (problems == "").to_numpy()
@@ -338,6 +365,7 @@ def validate_rows(frame: pd.DataFrame) -> ParsedBatch:
         values=values,
         source_rows=rows[valid],
         applicant_ids=ids[valid].reset_index(drop=True),
+        products=None if products is None else products[valid].reset_index(drop=True),
         errors=errors,
         total_rows=n,
     )
@@ -348,7 +376,7 @@ def parse_upload(data: bytes, policy: Policy | None = None) -> ParsedBatch:
     policy = policy or load_policy()
     frame = read_csv_bytes(data, policy.batch.max_rows)
     mapped, renamed, ignored = map_columns(frame)
-    parsed = validate_rows(mapped)
+    parsed = validate_rows(mapped, policy.profile)
     parsed.renamed, parsed.ignored = renamed, ignored
     return parsed
 
@@ -358,6 +386,7 @@ def parse_upload(data: bytes, policy: Policy | None = None) -> ParsedBatch:
 RESULT_COLUMNS: tuple[str, ...] = (
     "row",
     ID_COLUMN,
+    PRODUCT_COLUMN,
     "status",
     "probability",
     "likelihood",
@@ -379,7 +408,8 @@ def score(
     """Score every valid row in chunks with the customer-mode decision core.
 
     Reasons and "what would change" are built for rejected rows only; positive factors
-    only when ``include_positive`` is set.
+    only when ``include_positive`` is set. Each row is decided under its own loan type's
+    profile (``parsed.products``); rows without one use ``policy``.
 
     Returns:
         One row per valid applicant with :data:`RESULT_COLUMNS` (plus ``positive_factors``
@@ -390,17 +420,34 @@ def score(
     bands = policy.display.probability_bands
     chunk = policy.batch.chunk_size
     n = len(parsed.values)
+    products = (
+        parsed.products
+        if parsed.products is not None
+        else pd.Series(policy.profile, index=parsed.values.index)
+    )
     records: list[dict[str, Any]] = []
     for start in range(0, n, chunk):
         part = parsed.values.iloc[start : start + chunk]
-        results = decide_many(
-            part, policy, artifact, include_positive=include_positive, include_rule_results=False
-        )
+        part_products = products.iloc[start : start + chunk].to_numpy()
+        results: list[Any] = [None] * len(part)
+        for name in dict.fromkeys(part_products):  # each loan type in order of appearance
+            idx = np.flatnonzero(part_products == name)
+            profile_policy = policy if name == policy.profile else load_profile(name)
+            decided = decide_many(
+                part.iloc[idx],
+                profile_policy,
+                artifact,
+                include_positive=include_positive,
+                include_rule_results=False,
+            )
+            for k, res in zip(idx, decided, strict=True):
+                results[k] = res
         for offset, res in enumerate(results):
             i = start + offset
             rec = {
                 "row": int(parsed.source_rows[i]),
                 ID_COLUMN: parsed.applicant_ids.iloc[i],
+                PRODUCT_COLUMN: res.profile,
                 "status": res.status,
                 "probability": res.probability,
                 "likelihood": f"{score_percent(res.probability)} - "

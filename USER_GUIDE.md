@@ -8,6 +8,18 @@ Start the app with `streamlit run app/Home.py` (setup: see README.md) and open t
 
 ## Part 1: For customers (Check My Eligibility)
 
+### Choose the loan type
+
+At the top of the form, pick the **Loan type**: Personal loan (the default), Home loan or Vehicle loan. The loan type changes the policy limits the check uses (for example the allowed loan term, how many times your income you may borrow, and the interest rate assumed for the EMI). It does **not** change the prediction model: every loan type is scored by the same model, which learned from one synthetic dataset that has no loan-type information. The note under the selector shows the limits for the type you picked.
+
+| Loan type | Loan term | Loan up to (x annual income) | Loan up to (x total assets) | Assumed interest rate |
+|---|---|---|---|---|
+| Personal (default) | 2 to 20 years | 4.0x | 1.5x | 10% |
+| Home | 5 to 30 years | 6.0x | 2.0x | 8.5% |
+| Vehicle | 1 to 7 years | 1.5x | 1.0x | 11% |
+
+All of these are illustrative placeholders. The model only saw loan terms of 2 to 20 years and loans of 1.5 to 4 times income, so values outside that range (for example a 25-year home loan) get a warning that the result is less reliable.
+
 ### What you need
 
 | Field | What to enter |
@@ -22,6 +34,8 @@ Start the app with `streamlit run app/Home.py` (setup: see README.md) and open t
 | Bank balances and deposits (Rs) | Savings, fixed deposits and investments. 0 if none. |
 
 Under each amount the app repeats what you typed in Indian grouping (for example "= Rs 1,50,00,000") so you can check the number of zeros. Then press **Check eligibility**.
+
+Under the result, a small line names the loan type, its policy version and the model version that produced it.
 
 **Your privacy:** nothing you enter on this page is stored or logged. The result is calculated in memory and discarded when you leave.
 
@@ -45,7 +59,7 @@ A result is marked **borderline - manual review recommended** when it is too clo
 
 **Why a CIBIL score near the minimum is *not* flagged when another rule also failed:** if the application also breaks a different enforced rule, for example a loan term longer than 20 years or a loan more than 4 times the annual income, it would be rejected even with a better CIBIL score. Reviewing the CIBIL score by hand could not change that, so calling it borderline would be misleading.
 
-The word "Borderline" in the likelihood band (35-65%) is only a description of the score; the amber pill is what means *manual review recommended*. All of these numbers are placeholders in `config/policy.yaml`.
+The word "Borderline" in the likelihood band (35-65%) is only a description of the score; the amber pill is what means *manual review recommended*. All of these numbers are placeholders in the policy profiles in `config/policies/`.
 
 ### Common messages
 
@@ -73,6 +87,7 @@ Click **Download CSV template** for a 3-row example. One applicant per row, **up
 | Column | Required | Description | Allowed values |
 |---|---|---|---|
 | `applicant_id` | optional | Your own reference, copied to the results. Not stored by LoanLens. | any text |
+| `product` | optional | Loan type for this row. Blank means personal. Any other value is reported as a row problem and the row is skipped. Also recognised as *Loan type*. | `personal`, `home` or `vehicle` (any case) |
 | `cibil_score` | yes | CIBIL credit score | whole number, 300 to 900 |
 | `income_annum` | yes | Annual income in rupees | more than 0 |
 | `loan_amount` | yes | Requested loan in rupees | more than 0 |
@@ -96,6 +111,7 @@ Tips:
 - If a required column is missing, the page names exactly which ones.
 - Amounts may be written as `1250000`, `12,50,000` or `Rs 12,50,000`. Comma, semicolon, tab and pipe separators all work.
 - A **blank asset cell is an error**, not 0: write 0 if the applicant has none.
+- Each row is checked under its own loan type's limits (see Part 1, "Choose the loan type"). Without a `product` column every row is a personal loan.
 - Do not include names, phone numbers or other personal details; they are not needed.
 
 ### Running a check
@@ -112,6 +128,7 @@ Tips:
 |---|---|
 | `row` | Spreadsheet row number in your file |
 | `applicant_id` | Your reference (blank if you did not provide one) |
+| `product` | The loan type the row was checked under |
 | `status` | Approved or Rejected |
 | `probability` | Model score, 0 to 1 (stored value) |
 | `likelihood` | Display version with its band, e.g. ">99% - Very likely" |
@@ -123,7 +140,7 @@ Tips:
 
 ### What is stored
 
-Only an **anonymised summary** of each batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved to `data/loanlens.sqlite`, and appears on the **Analytics** page. No names, IDs or applicant values are stored unless an administrator sets `storage.store_applicant_ids: true` in `config/policy.yaml`.
+Only an **anonymised summary** of each batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved, and appears on the **Analytics** page. By default it goes to the local file `data/loanlens.sqlite`; an administrator can point LoanLens at another database (for example PostgreSQL) with the `DATABASE_URL` setting. No names, IDs or applicant values are stored unless an administrator sets `storage.store_applicant_ids: true` in `config/policies/personal.yaml`. If the database cannot be reached, the results still appear and a short note says the summary was not saved.
 
 ### Speed and limits
 

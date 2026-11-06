@@ -1,15 +1,35 @@
-"""Typed loader for ``config/policy.yaml`` (the single source of all thresholds)."""
+"""Typed loader for the policy profiles in ``config/policies/`` (the source of all thresholds).
+
+Each loan type (``personal``, ``home``, ``vehicle``) has one YAML file with ``profile``,
+``version`` (semantic version), ``description`` and the rule, EMI, model and display settings.
+``personal`` is the default and reproduces the original ``config/policy.yaml`` exactly.
+A profile changes the rules and assumptions only, never the trained model.
+
+Every loaded policy carries a content hash (SHA-256 of its validated settings), so a
+decision can record exactly which settings produced it.
+"""
 
 from __future__ import annotations
 
-from functools import lru_cache
+import hashlib
+import json
+import re
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-POLICY_PATH = PROJECT_ROOT / "config" / "policy.yaml"
+PROFILES_DIR = PROJECT_ROOT / "config" / "policies"
+DEFAULT_PROFILE = "personal"
+POLICY_PATH = PROFILES_DIR / f"{DEFAULT_PROFILE}.yaml"  # the default profile's file
+SEMVER = r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+_PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+
+class UnknownProfileError(ValueError):
+    """Raised for a loan type with no profile file. ``str(error)`` is user-facing."""
 
 
 class RuleConfig(BaseModel):
@@ -111,10 +131,13 @@ class EmiConfig(BaseModel):
 
 
 class Policy(BaseModel):
-    """The whole policy file."""
+    """One policy profile (the whole YAML file)."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
+    profile: str = Field(default=DEFAULT_PROFILE, pattern=_PROFILE_NAME.pattern)
+    version: str = Field(default="1.0.0", pattern=SEMVER)
+    description: str = ""
     rules: RulesConfig
     emi: EmiConfig
     model: ModelConfig
@@ -122,14 +145,66 @@ class Policy(BaseModel):
     batch: BatchConfig = BatchConfig()
     storage: StorageConfig = StorageConfig()
 
+    @cached_property
+    def content_hash(self) -> str:
+        """SHA-256 of the validated settings (canonical JSON). Comments do not affect it."""
+        canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 def load_policy_file(path: Path = POLICY_PATH) -> Policy:
-    """Read and validate a policy YAML file."""
+    """Read and validate a policy YAML file (and compute its content hash)."""
     with open(path, encoding="utf-8") as fh:
-        return Policy.model_validate(yaml.safe_load(fh) or {})
+        policy = Policy.model_validate(yaml.safe_load(fh) or {})
+    _ = policy.content_hash
+    return policy
 
 
-@lru_cache(maxsize=1)
+def list_profiles() -> list[str]:
+    """Available loan types: the default first, then the others alphabetically."""
+    names = sorted(p.stem for p in PROFILES_DIR.glob("*.yaml") if _PROFILE_NAME.fullmatch(p.stem))
+    return sorted(names, key=lambda n: (n != DEFAULT_PROFILE, n))
+
+
+def normalise_profile(name: str | None) -> str:
+    """Lower-case, trimmed profile name (``None`` or blank means the default)."""
+    text = (name or "").strip().lower()
+    return text or DEFAULT_PROFILE
+
+
+def load_profile(name: str | None = None) -> Policy:
+    """Load one policy profile by name (case and spaces ignored; cached per process).
+
+    Raises:
+        UnknownProfileError: no such profile (the message lists the valid names).
+    """
+    key = normalise_profile(name)
+    if not _PROFILE_NAME.fullmatch(key) or not (PROFILES_DIR / f"{key}.yaml").is_file():
+        raise UnknownProfileError(
+            f"Unknown loan type '{name}'. Choose one of: {', '.join(list_profiles())}."
+        )
+    return _load_profile(key)
+
+
+@lru_cache(maxsize=16)
+def _load_profile(key: str) -> Policy:
+    path = PROFILES_DIR / f"{key}.yaml"
+    policy = load_policy_file(path)
+    if policy.profile != key:
+        raise ValueError(f"{path.name} declares profile '{policy.profile}', expected '{key}'")
+    return policy
+
+
+def load_all_profiles() -> dict[str, Policy]:
+    """Every profile, keyed by name, default first."""
+    return {name: load_profile(name) for name in list_profiles()}
+
+
+def resolve_policy(profile: str | None = None, policy: Policy | None = None) -> Policy:
+    """The policy to apply: an explicit ``policy`` wins, else the named (or default) profile."""
+    return policy if policy is not None else load_profile(profile)
+
+
 def load_policy() -> Policy:
-    """Return the project policy (cached; the file is read once per process)."""
-    return load_policy_file(POLICY_PATH)
+    """Return the default (personal) profile (cached; the file is read once per process)."""
+    return load_profile(DEFAULT_PROFILE)

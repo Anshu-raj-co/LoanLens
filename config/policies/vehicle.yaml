@@ -1,13 +1,23 @@
-# LoanLens policy configuration.
-# Single source of truth for every threshold used by the decision logic.
-# All values below are PLACEHOLDERS: illustrative values only. A lender would
-# replace them with its own credit policy. Do not treat them as real lending policy.
+# LoanLens policy profile: vehicle loans.
+# All values below are PLACEHOLDERS: illustrative values only, chosen to show how a loan
+# type can change the rules. A lender would replace them with its own credit policy. Do not
+# treat them as real lending policy.
 #
-# Each rule has:
-#   value:   the threshold
-#   enforce: true  -> a failed rule makes the decision Rejected, with that rule as the reason
-#            false -> advisory only: a failed rule is shown as a warning, status unchanged
-# The enforce choices for the three ratio rules are backed by reports/rules_vs_labels.md.
+# A profile changes the rules and assumptions only. It does NOT change the trained model,
+# which learned from one synthetic dataset with no loan-type information (loan term 2 to 20
+# years, loan-to-income 1.5x to 4.0x). Values outside that range get a reliability warning.
+#
+# Differences from the personal profile (illustrative):
+#   - loan term 1 to 7 years (personal: 2 to 20)
+#   - loan up to 1.5x annual income (personal: 4.0x)
+#   - loan up to 1.0x total assets (personal: 1.5x)
+#   - assumed interest rate 11% a year (personal: 10%)
+#
+# App-wide settings (batch, storage, cleaning) come from the default personal profile.
+
+profile: vehicle
+version: "1.0.0"
+description: Vehicle loan. Shorter terms and lower income multiples; illustrative placeholder values.
 
 rules:
   min_cibil:                  # pass if cibil_score >= value
@@ -15,22 +25,22 @@ rules:
     enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
   max_emi_to_income:          # pass if monthly EMI / monthly income <= value
     value: 0.50               # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-    enforce: false            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (fails 47% of approved applicants, see rules_vs_labels.md)
+    enforce: false            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
   max_loan_to_income:         # pass if loan amount / annual income <= value
-    value: 4.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-  max_loan_to_assets:         # pass if loan amount / total assets <= value
     value: 1.5                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
     enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+  max_loan_to_assets:         # pass if loan amount / total assets <= value
+    value: 1.0                # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
   min_loan_term_years:        # pass if loan_term >= value
-    value: 2                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    value: 1                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
     enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
   max_loan_term_years:        # pass if loan_term <= value
-    value: 20                 # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
+    value: 7                  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
     enforce: true             # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
 
 emi:
-  assumed_annual_interest_rate: 0.10  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (dataset has no rate)
+  assumed_annual_interest_rate: 0.11  # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy (dataset has no rate)
 
 model:
   approval_threshold: 0.5     # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
@@ -50,16 +60,3 @@ display:
     likely: 0.65              # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
     borderline: 0.35          # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
     unlikely: 0.15            # PLACEHOLDER - illustrative value; a lender would replace it with its own credit policy
-
-batch:
-  max_rows: 50000             # largest CSV accepted in Bulk Check (set from measured speed)
-  chunk_size: 2000            # rows scored per step (drives the progress bar and memory use)
-
-storage:
-  db_path: data/loanlens.sqlite   # SQLite file for anonymised batch summaries (gitignored)
-  store_applicant_ids: false      # true also stores per-row applicant IDs and statuses
-
-cleaning:
-  # How to treat negative residential_assets_value (data errors).
-  # Options: "clip_zero" (set to 0), "drop" (remove rows), "nan" (set to missing).
-  negative_assets_strategy: clip_zero

@@ -4,12 +4,23 @@ The model predicts the **approval decision** (1 = approved) in the synthetic tra
 data. It does not predict default. All preprocessing happens inside sklearn Pipelines,
 so scalers and encoders are fitted inside each cross-validation fold only.
 
-Run ``python -m loanlens.model`` to train the final model and save it to ``models/``.
+Command line (see ``python -m loanlens.model --help``):
+
+* ``python -m loanlens.model`` trains the final model, saves it as
+  ``models/loanlens_model_<version>.joblib``, registers it in ``models/registry.json`` and
+  makes it active. Older versions are kept.
+* ``--list`` shows every registered version; ``--activate <version>`` switches the active one.
+
+:func:`load_artifact` loads the active version (or ``LOANLENS_MODEL_VERSION``) and checks its
+SHA-256 against the registry first.
 """
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -40,14 +51,17 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from xgboost import XGBClassifier
 
-from loanlens import features
+from loanlens import features, registry
 from loanlens.config import PROJECT_ROOT
 
 SEED = 42
 TARGET = "loan_status"
 MODEL_DIR = PROJECT_ROOT / "models"
-MODEL_PATH = MODEL_DIR / "loanlens_model.joblib"
-MODEL_VERSION = "1.0.0"
+# The single, unversioned file used before the registry existed. It is moved into the
+# registry automatically (bytes unchanged) the first time a model is loaded.
+LEGACY_MODEL_PATH = MODEL_DIR / "loanlens_model.joblib"
+MODEL_PATH = LEGACY_MODEL_PATH  # kept for older notebooks and scripts
+MODEL_VERSION = "1.0.0"  # version of the first registered model
 
 ModelKind = Literal["logreg", "random_forest", "xgboost"]
 
@@ -266,6 +280,7 @@ def train_final(
     monotone: dict[str, int] | None = None,
     calibration: Literal["isotonic", "sigmoid"] = FINAL_CALIBRATION,
     cv_metrics: dict[str, float] | None = None,
+    version: str = MODEL_VERSION,
 ) -> dict[str, Any]:
     """Fit the calibrated final model on all data and return a saveable artifact.
 
@@ -284,7 +299,7 @@ def train_final(
         "kind": kind,
         "monotone": dict(monotone),
         "calibration": calibration,
-        "version": MODEL_VERSION,
+        "version": version,
         "trained_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "n_train": int(len(y)),
         "seed": SEED,
@@ -303,18 +318,116 @@ def save_artifact(artifact: dict[str, Any], path: Path = MODEL_PATH) -> Path:
     return path
 
 
-@lru_cache(maxsize=4)
-def load_artifact(path: Path = MODEL_PATH) -> dict[str, Any]:
-    """Load (and cache) a saved artifact.
-
-    Raises:
-        FileNotFoundError: with instructions if the model has not been trained yet.
-    """
+@lru_cache(maxsize=8)
+def _load_file(path: Path, sha256: str | None) -> dict[str, Any]:
+    """joblib-load a file once per (path, hash) pair."""
     if not Path(path).exists():
         raise FileNotFoundError(
             f"No trained model at {path}. Run `python -m loanlens.model` to train it."
         )
     return joblib.load(path)
+
+
+def load_artifact(path: Path | None = None) -> dict[str, Any]:
+    """Load (and cache) a model artifact.
+
+    Args:
+        path: a specific artifact file. When omitted, the registry's selected version is
+            used (``LOANLENS_MODEL_VERSION`` or the active one) after its SHA-256 is checked.
+
+    Raises:
+        FileNotFoundError: with instructions if no model has been trained yet.
+        registry.ArtifactIntegrityError: the file does not match its registered hash.
+        registry.RegistryError: the requested version is not registered.
+    """
+    if path is not None:
+        return _load_file(Path(path), None)
+    migrate_legacy_artifact()
+    entry, verified = registry.resolve_artifact()
+    return _load_file(verified, entry.artifact_sha256)
+
+
+load_artifact.cache_clear = _load_file.cache_clear  # type: ignore[attr-defined]
+
+
+def data_hash(path: Path) -> str:
+    """SHA-256 of a training data file (recorded in the registry)."""
+    return registry.file_sha256(Path(path))
+
+
+def frame_hash(df: pd.DataFrame) -> str:
+    """SHA-256 of a data frame's CSV form (used when there is no file to hash)."""
+    return hashlib.sha256(df.to_csv(index=False).encode("utf-8")).hexdigest()
+
+
+def migrate_legacy_artifact(
+    legacy_path: Path | None = None, registry_path: Path | None = None
+) -> registry.ModelEntry | None:
+    """Move a pre-registry ``loanlens_model.joblib`` into the registry, bytes unchanged.
+
+    Does nothing when the registry already has models or there is no legacy file. The file
+    is renamed to ``loanlens_model_<version>.joblib`` (same bytes, so the same predictions)
+    and registered as active with the hash of the current processed training data.
+    """
+    legacy_path = Path(legacy_path) if legacy_path is not None else LEGACY_MODEL_PATH
+    reg_path = Path(registry_path) if registry_path is not None else registry.REGISTRY_PATH
+    if registry.load_registry(reg_path).models or not legacy_path.exists():
+        return None
+    from loanlens import cleaning
+
+    meta = {k: v for k, v in joblib.load(legacy_path).items() if k != "model"}
+    target = reg_path.parent / registry.artifact_filename(str(meta["version"]))
+    os.replace(legacy_path, target)
+    sidecar = legacy_path.with_suffix(".json")
+    if sidecar.exists():
+        os.replace(sidecar, target.with_suffix(".json"))
+    processed = cleaning.PROCESSED_PATH
+    return registry.register(
+        target,
+        meta,
+        data_hash(processed) if processed.exists() else "unavailable",
+        activate=True,
+        notes=(
+            "Registered from the pre-registry artifact models/loanlens_model.joblib (bytes "
+            "unchanged). The training-data hash was computed at registration time from "
+            "data/processed/loan_approval_clean.csv."
+        ),
+        registry_path=reg_path,
+    )
+
+
+def train_and_register(
+    df: pd.DataFrame,
+    training_data_hash: str | None = None,
+    version: str | None = None,
+    cv_metrics: dict[str, float] | None = None,
+    activate: bool = True,
+    registry_path: Path | None = None,
+) -> registry.ModelEntry:
+    """Train the final model on ``df``, save it as a new version and register it.
+
+    Args:
+        df: cleaned training data.
+        training_data_hash: hash of the data file; defaults to a hash of ``df``.
+        version: semantic version; defaults to the next minor version.
+        cv_metrics: cross-validated metrics to record.
+        activate: make it the active model (older versions become archived).
+        registry_path: registry file; artifacts are saved next to it.
+    """
+    reg_path = Path(registry_path) if registry_path is not None else registry.REGISTRY_PATH
+    current = registry.load_registry(reg_path)
+    version = version or registry.next_version(current)
+    path = reg_path.parent / registry.artifact_filename(version)
+    if path.exists() or any(e.version == version for e in current.models):
+        raise registry.RegistryError(f"Model version {version} already exists.")
+    artifact = train_final(df, cv_metrics=cv_metrics, version=version)
+    save_artifact(artifact, path)
+    meta = {k: v for k, v in artifact.items() if k != "model"}
+    entry = registry.register(
+        path, meta, training_data_hash or frame_hash(df), activate=activate, registry_path=reg_path
+    )
+    load_artifact.cache_clear()
+    return entry
 
 
 def base_pipeline(artifact: dict[str, Any]) -> Pipeline:
@@ -327,8 +440,39 @@ def predict_proba(artifact: dict[str, Any], frame: pd.DataFrame) -> np.ndarray:
     return artifact["model"].predict_proba(frame[artifact["features"]])[:, 1]
 
 
-def main() -> None:  # pragma: no cover - exercised via the CLI
-    """Cross-validate the final configuration, train it on all data and save it."""
+def cli(argv: list[str] | None = None) -> int:
+    """Command-line entry point. Returns the process exit code."""
+    parser = argparse.ArgumentParser(
+        prog="python -m loanlens.model",
+        description="Train, list and activate LoanLens model versions.",
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--list", action="store_true", help="list registered model versions")
+    group.add_argument("--activate", metavar="VERSION", help="make VERSION the active model")
+    parser.add_argument("--version", help="version for a newly trained model (default: next)")
+    parser.add_argument(
+        "--no-activate", action="store_true", help="register a new model without activating it"
+    )
+    args = parser.parse_args(argv)
+    try:
+        migrate_legacy_artifact()
+        if args.list:
+            print(registry.format_table(registry.load_registry()))
+            return 0
+        if args.activate:
+            entry = registry.activate(args.activate)
+            load_artifact.cache_clear()
+            print(f"Model {entry.version} is now active ({entry.artifact}).")
+            return 0
+        _train_from_files(args.version, activate=not args.no_activate)  # pragma: no cover
+        return 0  # pragma: no cover
+    except (registry.RegistryError, FileNotFoundError) as exc:
+        print(f"Error: {exc}")
+        return 1
+
+
+def _train_from_files(version: str | None, activate: bool) -> None:  # pragma: no cover
+    """Cross-validate the final configuration, train it on all data and register it."""
     from loanlens import cleaning
 
     if not cleaning.PROCESSED_PATH.exists():
@@ -344,10 +488,17 @@ def main() -> None:  # pragma: no cover - exercised via the CLI
     est = calibrated(make_estimator(FINAL_KIND, FINAL_FEATURES, FINAL_MONOTONE), FINAL_CALIBRATION)
     cv = cross_validate("final", est, frame[list(FINAL_FEATURES)], frame[TARGET])
     metrics = {k: round(float(v), 4) for k, v in cv.mean.items()}
-    artifact = train_final(df, cv_metrics=metrics)
-    path = save_artifact(artifact)
-    print(f"Saved model {artifact['version']} ({FINAL_KIND}, {FINAL_CALIBRATION}) to {path}")
-    print("CV metrics:", metrics)
+    entry = train_and_register(
+        df, data_hash(cleaning.PROCESSED_PATH), version, metrics, activate=activate
+    )
+    state = "active" if entry.status == "active" else "registered, not active"
+    print(f"Saved model {entry.version} ({FINAL_KIND}, {FINAL_CALIBRATION}) to {entry.artifact}")
+    print(f"Status: {state}. CV metrics: {metrics}")
+
+
+def main() -> None:  # pragma: no cover - exercised via the CLI
+    """Run the command line and exit with its status code."""
+    raise SystemExit(cli())
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -51,7 +51,7 @@ Python 3.11, pandas, numpy, scikit-learn, XGBoost, SHAP, Streamlit, Plotly, Pyda
 For every application, in order:
 
 1. **Validate** input (Pydantic). Invalid input returns a clear error and no decision.
-2. **Policy rules** from `config/policy.yaml`. Any hard-rule failure means **Rejected**, with that rule as the reason. Rules: `min_cibil`, `max_emi_to_income`, `max_loan_to_income`, `max_loan_to_assets`, min and max loan term.
+2. **Policy rules** from the selected policy profile in `config/policies/` (personal by default). Any hard-rule failure means **Rejected**, with that rule as the reason. Rules: `min_cibil`, `max_emi_to_income`, `max_loan_to_income`, `max_loan_to_assets`, min and max loan term.
    - EMI uses the standard formula with an **assumed annual interest rate** from config (placeholder, because the dataset has no rate).
    - Thresholds are placeholders, illustrative until replaced by a lender's real credit policy. Mark them clearly in the config file.
 3. **Model**: calibrated probability `p`. If `p >= approval_threshold` (default 0.5) then Approved, else Rejected.
@@ -94,7 +94,7 @@ loanlens/
   CLAUDE.md
   README.md
   requirements.txt
-  config/policy.yaml
+  config/policies/     # personal.yaml (default), home.yaml, vehicle.yaml
   data/raw/            # never edit; gitignored if large
   data/processed/
   notebooks/           # 01_audit, 02_eda, 03_modelling, 04_benchmark_bank_loan_data
@@ -128,7 +128,7 @@ loanlens/
 ## 10. Coding conventions
 
 - Type hints, docstrings on public functions, small modules, no business logic inside Streamlit files (the app only calls `src/loanlens`).
-- All thresholds come from `config/policy.yaml`, never hard-coded.
+- All thresholds come from the policy profiles in `config/policies/`, never hard-coded.
 - Amounts are in INR. Display with Indian grouping where practical (e.g. 12,50,000).
 - Friendly error messages. Never show raw stack traces to the user.
 - Tests with pytest: cleaning, EMI calculation, each rule, decision orchestration, batch validation (good CSV, bad CSV, missing columns, empty file), reasons present on every rejection.

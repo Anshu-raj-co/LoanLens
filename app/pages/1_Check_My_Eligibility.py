@@ -5,23 +5,38 @@ from __future__ import annotations
 import streamlit as st
 from ui_common import footer, friendly_failure, get_model, get_policy, setup_page
 
+from loanlens.config import DEFAULT_PROFILE, list_profiles, load_profile
 from loanlens.decision import decide
 from loanlens.presentation import (
     FORM_FIELDS,
     PRIVACY_NOTE,
+    PROFILE_NOTE,
     PROTOTYPE_NOTICE,
     amount_hint,
     present,
+    profile_caption,
+    profile_label,
     thresholds_note,
 )
 from loanlens.schema import ValidationFailure
 from loanlens.theme import pill_html, policy_checks_html, status_label
 
 setup_page("Check My Eligibility")
-policy = get_policy()
+get_policy()  # stops with a friendly message if the policy files cannot be read
 artifact = get_model()
 
 st.warning(f"**{PROTOTYPE_NOTICE}.** This is an indicative pre-screening check only.")
+profiles = list_profiles()
+loan_type = st.selectbox(
+    "Loan type",
+    profiles,
+    index=profiles.index(DEFAULT_PROFILE),
+    format_func=profile_label,
+    help=PROFILE_NOTE,
+    key="form_loan_type",
+)
+policy = load_profile(loan_type)
+st.caption(f"{policy.description} {PROFILE_NOTE}")
 st.caption(thresholds_note(policy))
 st.caption(PRIVACY_NOTE)
 
@@ -74,6 +89,7 @@ if checked:
             with score_col:
                 st.metric("Approval likelihood", view.likelihood)
                 st.caption(view.score_label)
+        st.caption(f"{profile_caption(policy)} Model v{result.model_version}.")
         if view.borderline:
             st.warning(f"**Borderline: manual review recommended.** {view.borderline_note}")
         st.info(f"**{view.notice}.**")
