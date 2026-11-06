@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from app_support import open_page
 
 from loanlens.config import load_policy
 from loanlens.decision import decide
@@ -83,9 +84,7 @@ def test_customer_page_does_not_store_data(app_path) -> None:
 
 
 def _page(app_path: str, name: str):
-    from streamlit.testing.v1 import AppTest
-
-    return AppTest.from_file(str(Path(app_path) / name), default_timeout=120)
+    return open_page(name)
 
 
 def test_home_renders(app_path) -> None:

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 import pytest
+from app_support import open_page
 
 from loanlens import batch, charts, explain, storage
 from loanlens import model as model_mod
-from loanlens.access import DEMO_PASSWORD
 from loanlens.config import load_policy
 from loanlens.presentation import policy_table, thresholds_note
 
@@ -23,13 +21,8 @@ PAGES = [
 
 
 def _run(app_path: str, page: str, manager: bool = False):
-    from streamlit.testing.v1 import AppTest
-
-    at = AppTest.from_file(str(Path(app_path) / page), default_timeout=120).run()
-    if manager:
-        at.toggle(key="manager_mode").set_value(True).run()
-        at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
-    return at
+    """Run ``page`` signed in with the role it needs (``manager`` is kept for readability)."""
+    return open_page(page).run()
 
 
 @pytest.mark.parametrize("page", PAGES)

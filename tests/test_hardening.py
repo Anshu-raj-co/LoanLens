@@ -1,14 +1,13 @@
-"""Phase 10 hardening: manager gate, edge cases, fallbacks and size limits."""
+"""Phase 10 hardening: secrets, edge cases, fallbacks and size limits."""
 
 from __future__ import annotations
 
 import io
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from loanlens import access, batch, explain
+from loanlens import batch, explain
 from loanlens.config import PROJECT_ROOT, load_policy
 from loanlens.decision import INPUT_COLUMNS, decide, decide_many
 from loanlens.examples import EXAMPLES
@@ -19,81 +18,13 @@ from loanlens.schema import DecisionResult, ValidationFailure
 STRONG = EXAMPLES[0][1]
 
 
-# ---- Manager gate (review decision 3) -----------------------------------------------------
-
-
-def test_gate_password_precedence() -> None:
-    assert access.resolve_password({}, None).is_demo_default
-    assert access.resolve_password({}, {"manager_password": "s3"}).value == "s3"
-    env = access.resolve_password({access.ENV_VAR: "e1"}, {"manager_password": "s3"})
-    assert (env.value, env.source) == ("e1", "environment")
-    assert access.resolve_password({access.ENV_VAR: "  "}, {}).is_demo_default
-
-
-def test_gate_survives_broken_secrets() -> None:
-    class Broken(dict):
-        def get(self, *_):
-            raise FileNotFoundError("no secrets.toml")
-
-    assert access.resolve_password({}, Broken()).is_demo_default
-
-
-def test_check_password() -> None:
-    gate = access.GatePassword("right", "environment")
-    assert access.check_password("right", gate)
-    assert not access.check_password("wrong", gate)
-    assert not access.check_password("", gate) and not access.check_password(None, gate)
+# ---- Secrets ---------------------------------------------------------------------------------
 
 
 def test_no_secret_committed() -> None:
     ignored = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert ".streamlit/secrets.toml" in ignored
     assert not (PROJECT_ROOT / ".streamlit" / "secrets.toml").exists()
-
-
-def _bulk(app_path, monkeypatch, tmp_path, password: str | None):
-    import streamlit as st
-    from streamlit.testing.v1 import AppTest
-
-    from loanlens import storage
-
-    monkeypatch.delenv(access.ENV_VAR, raising=False)
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: None)
-    monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "g.sqlite")
-    at = AppTest.from_file(str(Path(app_path) / "pages" / "2_Bulk_Check.py"), default_timeout=120)
-    at.run()
-    at.toggle(key="manager_mode").set_value(True).run()
-    if password is not None:
-        at.text_input(key="manager_password").set_value(password).run()
-    return at
-
-
-def test_bulk_page_needs_password(app_path, monkeypatch, tmp_path, artifact) -> None:
-    at = _bulk(app_path, monkeypatch, tmp_path, None)
-    assert not at.exception
-    assert any("Enter the manager password" in i.value for i in at.info)
-    assert not at.get("download_button")
-    at = _bulk(app_path, monkeypatch, tmp_path, "not-the-password")
-    assert not at.exception
-    assert any("not correct" in e.value for e in at.error)
-    at = _bulk(app_path, monkeypatch, tmp_path, access.DEMO_PASSWORD)
-    assert not at.exception and not at.error
-    assert any("demo password" in c.value for c in at.sidebar.caption)
-
-
-def test_bulk_page_uses_env_password(app_path, monkeypatch, tmp_path, artifact) -> None:
-    import streamlit as st
-    from streamlit.testing.v1 import AppTest
-
-    monkeypatch.setenv(access.ENV_VAR, "from-env")
-    monkeypatch.setattr(st, "file_uploader", lambda *a, **k: None)
-    at = AppTest.from_file(str(Path(app_path) / "pages" / "2_Bulk_Check.py"), default_timeout=120)
-    at.run()
-    at.toggle(key="manager_mode").set_value(True).run()
-    at.text_input(key="manager_password").set_value(access.DEMO_PASSWORD).run()
-    assert any("not correct" in e.value for e in at.error)
-    at.text_input(key="manager_password").set_value("from-env").run()
-    assert not at.exception and not at.error
 
 
 # ---- Decision edge cases -------------------------------------------------------------------

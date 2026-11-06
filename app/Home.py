@@ -23,11 +23,13 @@ st.info(thresholds_note(policy))
 
 st.subheader("Choose what you want to do")
 PAGES = [
+    ("pages/0_Sign_In.py", "Sign in",
+     "Sign in, or create an applicant account to check your own eligibility."),
     ("pages/1_Check_My_Eligibility.py", "Check my eligibility",
-     "For individuals: enter your own details and get an instant, explained result."),
-    ("pages/2_Bulk_Check.py", "Bulk check (bank staff)",
+     "For signed-in users: enter your details and get an instant, explained result."),
+    ("pages/2_Bulk_Check.py", "Bulk check (bank managers)",
      "Upload a CSV of many applicants, review every result and download them."),
-    ("pages/3_Analytics.py", "Analytics",
+    ("pages/3_Analytics.py", "Analytics (bank managers)",
      "Approval patterns in the training data, model drivers and the latest batch."),
     ("pages/4_About.py", "About and model card",
      "Data source, metrics, assumptions, limitations and current policy settings."),

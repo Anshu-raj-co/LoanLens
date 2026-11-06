@@ -1,4 +1,4 @@
-"""Bank manager mode: upload a CSV, validate, score every applicant, download results."""
+"""Bulk Check (bank managers only): upload a CSV, validate, score every applicant, download."""
 
 from __future__ import annotations
 
@@ -11,48 +11,19 @@ from ui_common import (
     friendly_failure,
     get_model,
     get_policy,
+    require_user,
     setup_page,
-    streamlit_secrets,
 )
 
-from loanlens import access, batch, storage
+from loanlens import auth, batch, storage
 from loanlens.config import DEFAULT_PROFILE, list_profiles
 from loanlens.formatting import SCORE_LABEL
 from loanlens.presentation import PROTOTYPE_NOTICE, thresholds_note
 from loanlens.theme import STYLED_ROWS_LIMIT, status_display_frame, style_status_column
 
 setup_page("Bulk Check")
+principal = require_user(auth.MANAGER)
 policy = get_policy()
-
-gate = access.resolve_password(secrets=streamlit_secrets())
-with st.sidebar:
-    manager_mode = st.toggle(
-        "Bank manager mode",
-        key="manager_mode",
-        help="Prototype gate only. Real authentication is future work.",
-    )
-    entered = (
-        st.text_input("Manager password", type="password", key="manager_password")
-        if manager_mode
-        else ""
-    )
-    if manager_mode and gate.is_demo_default:
-        st.caption("Using the local demo password (see README). Set a real one before sharing.")
-
-if not manager_mode:
-    st.info(
-        "Bulk Check is for bank staff. Turn on **Bank manager mode** in the sidebar and enter "
-        "the manager password to continue. (Prototype gate, not real authentication.)"
-    )
-    footer()
-    st.stop()
-if not access.check_password(entered, gate):
-    if entered:
-        st.error("That password is not correct. Please try again.")
-    else:
-        st.info("Enter the manager password in the sidebar to continue.")
-    footer()
-    st.stop()
 
 artifact = get_model()
 max_rows = policy.batch.max_rows

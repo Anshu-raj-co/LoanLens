@@ -6,7 +6,47 @@ Start the app with `streamlit run app/Home.py` (setup: see README.md) and open t
 
 ---
 
-## Part 1: For customers (Check My Eligibility)
+## Part 0: Accounts and signing in
+
+Home, Sign in and About are open to everyone. Every other page needs you to be signed in.
+
+| You are | You can use |
+|---|---|
+| An **applicant** | Check My Eligibility and Account |
+| A **bank manager** | Check My Eligibility, Bulk Check, Analytics, Users and Account |
+
+### Create an account (applicants)
+
+1. Open **Sign in** and choose the **Create account** tab.
+2. Enter your email address and a password twice, then press **Create account**. You are signed in straight away.
+
+Passwords need 10 to 128 characters, must not be a common password and must not be your email address. A passphrase of a few unrelated words works well. Bank manager accounts cannot be created here; an administrator or another manager creates them.
+
+### Sign in and sign out
+
+- On the **Sign in** tab enter your email and password. If anything is wrong, the message is always "Incorrect email or password", so it never reveals whether an email has an account.
+- After **5 wrong passwords in a row** the account is locked for **15 minutes**. While it is locked, even the right password is refused.
+- The sidebar shows the email and role you are signed in with, and a **Sign out** button.
+- A session lasts 60 minutes. **Refreshing or closing the browser tab also signs you out**; just sign in again.
+
+### Forgotten password
+
+There is no email reset. Ask a bank manager to set a **temporary password** for you (Users page). When you sign in with it you must choose a new password on the **Account** page before you can use the other pages.
+
+### Account page
+
+- **Change password:** enter your current password and the new one twice.
+- **Delete account:** tick the confirmation box, enter your password and press **Delete my account**. Your email address and password are removed and you are signed out. This cannot be undone.
+
+### What is stored about you
+
+Your email address, a one-way scrambled form of your password (never the password itself), your role, the time the account was created and your last sign-in, and a counter of failed sign-ins. A log of sign-ins and account changes is kept without your email address or password. Email addresses are not checked to be real. What you type into the eligibility form is not stored.
+
+---
+
+## Part 1: For applicants (Check My Eligibility)
+
+Sign in first (Part 0). Bank managers can use this page too.
 
 ### Choose the loan type
 
@@ -68,6 +108,11 @@ The word "Borderline" in the likelihood band (35-65%) is only a description of t
 | "Please correct the following and try again" | A field is missing or impossible (for example income of 0). Fix the listed fields. |
 | "The prediction model has not been trained yet" | The administrator needs to run `python -m loanlens.model`. |
 | "Sorry, something went wrong..." | Check the inputs and try again; contact the administrator if it repeats. |
+| "Incorrect email or password" | Check both and try again. After 5 wrong tries the account is locked for 15 minutes; a bank manager can unlock it by setting a temporary password. |
+| "Please sign in to use this page" | Open **Sign in** in the sidebar. |
+| "Your session has ended. Please sign in again." | The 60 minutes are up, or the account was changed by a manager. Sign in again. |
+| "This is available to bank managers only." | The page is for bank managers; applicants cannot open it. |
+| "You must choose a new password before you can continue." | Open **Account** and change the temporary password. |
 
 ---
 
@@ -75,10 +120,10 @@ The word "Borderline" in the likelihood band (35-65%) is only a description of t
 
 ### Getting in
 
-1. Open **Bulk Check** and switch on **Bank manager mode** in the sidebar.
-2. Enter the **manager password**. It is set by the administrator through the `LOANLENS_MANAGER_PASSWORD` environment variable or `.streamlit/secrets.toml`. On a local demo where neither is set, the password is `loanlens-demo` and the sidebar says so.
+1. Sign in with your **bank manager account** on the **Sign in** page.
+2. Open **Bulk Check** in the sidebar.
 
-This is a **prototype gate, not real authentication**.
+Manager accounts are created by an administrator (`python -m loanlens.auth create-manager --email <email>`, which asks for the password at a hidden prompt) or by another manager on the **Users** page. A new manager must change the temporary password at first sign-in.
 
 ### Preparing the CSV
 
@@ -145,6 +190,14 @@ Only an **anonymised summary** of each batch (counts, approval rate, likelihood 
 ### Speed and limits
 
 About 0.7 seconds per 1,000 rows; a 50,000-row file takes roughly 16-32 seconds. Files above 50,000 rows are refused with a message asking you to split them.
+
+### The Users page
+
+Managers see every account: email, role, status (Active, Locked, Deactivated, or must change password), when it was created and the last sign-in. From here you can:
+
+- **Create a manager:** enter the email and a temporary password twice. Give the password to the person directly; they must change it at first sign-in.
+- **Deactivate or reactivate an account:** a deactivated account cannot sign in, and an open session ends at its next page load. You cannot change your own status.
+- **Set a temporary password:** use this when someone has forgotten their password. It also unlocks a locked account, and they must choose a new password at their next sign-in.
 
 ### Remember
 

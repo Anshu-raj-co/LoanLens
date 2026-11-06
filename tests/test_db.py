@@ -20,6 +20,8 @@ from loanlens.db import engine as db_engine
 from loanlens.db.engine import DatabaseError, normalise_url
 
 PG_ENV = "LOANLENS_TEST_POSTGRES_URL"
+HEAD = "0002_auth"
+REAL_DB_PATH = storage.db_path  # captured before the autouse fixture redirects it
 SUMMARY = {
     "total_rows": 10,
     "valid_rows": 8,
@@ -39,7 +41,9 @@ RESULTS = pd.DataFrame(
 def _clean_postgres(url: str) -> None:
     db_engine.reset_caches()
     with db_engine.get_engine(url).begin() as conn:
-        for table in ("batch_rows", "batch_summaries", "alembic_version"):
+        for table in (
+            "auth_events", "users", "batch_rows", "batch_summaries", "alembic_version",
+        ):  # fmt: skip
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
     db_engine.reset_caches()
 
@@ -62,11 +66,9 @@ def db_url(request, tmp_path) -> str:
 def test_migration_creates_tables(db_url) -> None:
     db_engine.ensure_schema(db_url)
     names = set(inspect(db_engine.get_engine(db_url)).get_table_names())
-    assert {"batch_summaries", "batch_rows", "alembic_version"} <= names
+    assert {"batch_summaries", "batch_rows", "users", "auth_events", "alembic_version"} <= names
     with db_engine.get_engine(db_url).connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == (
-            "0001_initial"
-        )
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == HEAD
     db_engine.ensure_schema(db_url)  # idempotent
 
 
@@ -124,13 +126,12 @@ def test_legacy_sqlite_database_is_upgraded(tmp_path) -> None:
     assert storage.latest_summary(path)["id"] == 1
     assert storage.save_summary(SUMMARY, "1.0.0", path=path) == 2
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "0001_initial",
-        )
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == (HEAD,)
 
 
 def test_resolve_url_order(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv(db_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(storage, "db_path", REAL_DB_PATH)
     assert storage.resolve_url().endswith("data/loanlens.sqlite")
     monkeypatch.setenv(db_engine.ENV_VAR, "sqlite:///other.sqlite")
     assert storage.resolve_url().endswith("/other.sqlite")
@@ -182,11 +183,12 @@ def test_alembic_command_line(tmp_path, monkeypatch, capsys) -> None:
     command.upgrade(cfg, "head")
     with sqlite3.connect(db) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"batch_summaries", "batch_rows", "alembic_version"} <= names
+    assert {"batch_summaries", "batch_rows", "users", "auth_events", "alembic_version"} <= names
     command.downgrade(cfg, "base")
     with sqlite3.connect(db) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert "batch_summaries" not in names
+    assert "batch_summaries" not in names and "users" not in names
     command.upgrade(cfg, "head", sql=True)  # offline mode prints the SQL instead
-    assert "CREATE TABLE batch_summaries" in capsys.readouterr().out
+    sql = capsys.readouterr().out
+    assert "CREATE TABLE batch_summaries" in sql and "CREATE TABLE users" in sql
     db_engine.reset_caches()

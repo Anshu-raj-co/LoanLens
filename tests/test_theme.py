@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
 
 import pandas as pd
 import plotly.io as pio
 import pytest
+from app_support import open_page
 
 from loanlens import charts, theme
-from loanlens.access import DEMO_PASSWORD
 from loanlens.config import PROJECT_ROOT
 
 REQUIRED = {
@@ -125,12 +124,7 @@ def test_charts_use_theme_colours(clean_df) -> None:
 
 @pytest.mark.parametrize("page", PAGES)
 def test_every_page_renders_with_theme(app_path, artifact, page) -> None:
-    from streamlit.testing.v1 import AppTest
-
-    at = AppTest.from_file(str(Path(app_path) / page), default_timeout=120).run()
-    if page.endswith("Bulk_Check.py"):
-        at.toggle(key="manager_mode").set_value(True).run()
-        at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
+    at = open_page(page).run()
     assert not at.exception, at.exception
     html = " ".join(m.value for m in at.markdown)
     assert "ll-header" in html and "LoanLens" in html

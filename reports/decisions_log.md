@@ -517,6 +517,103 @@ Each entry records what was found, what was chosen, and why.
 - README, USER_GUIDE, PROJECT_EXPLAINED (Part 1 gained two jargon-free sections: "Different kinds of loan" and "Keeping a record"), the model card, `.env.example` (names only) and the screenshots were updated. The 02 form now shows the loan-type selector, and 07 About shows model versions and the profile table.
 - README now says the earlier fresh-clone verification predates Milestone 1 and was not repeated.
 
+## Milestone 2: authentication and roles
+
+### State on resume (before Milestone 2)
+- **Found:** `main` at `199b235` (Milestone 1), two commits ahead of `origin/main`, not pushed. The only uncommitted change was CLAUDE.md, which the owner had restructured (sections 1 to 15, with the platform-phase status table). That change is kept and included in the Milestone 2 commit, together with this milestone's status update, as section 14 asks.
+- **Baseline:** 376 tests passed, 3 PostgreSQL tests skipped, ruff clean. The six example decisions were compared again at the end and are byte-identical to the saved baseline.
+
+### D-074 Account tables
+- **Chose:** two tables in the same database as the batch summaries (`storage.resolve_url()`: `DATABASE_URL`, else the local SQLite file), added by Alembic revision `0002_auth`.
+  - `users`: id, `audit_ref` (random UUID, unique, separate from the id), email (unique, lower-case), `password_hash`, role (check constraint: `applicant` or `manager`), `is_active`, `must_change_password`, `created_at`, `last_login_at`, `failed_attempts`, `locked_until`.
+  - `auth_events`: id, `occurred_at`, `user_id`, `actor_id`, `event_type`, `success`, `reason`.
+- **Two small departures from the prompt's wording:**
+  - The timestamp column is named `occurred_at` rather than `timestamp`, which is also an SQL type name.
+  - `actor_id` was added, so manager actions (deactivate, temporary password, create manager) record who acted.
+- **Deletion:** both event links use `ON DELETE SET NULL`, and `delete_own_account` also clears them explicitly. A deleted account leaves no link from older events, and the deletion itself is logged with no user id.
+- **Times** are stored in UTC. SQLite returns them without a time zone, so they are read back as UTC.
+
+### D-075 Passwords and email addresses
+- **Hashing:** argon2id through argon2-cffi 25.1.0 with the library defaults (time cost 3, 64 MiB, parallelism 4; the RFC 9106 low-memory profile), with the type pinned to argon2id. If the parameters ever change, the hash is refreshed at the next successful sign-in.
+- **Policy:**
+  - 10 to 128 characters;
+  - not on `src/loanlens/auth/common_passwords.txt` (about 130 widely published common passwords, plus project-specific ones such as the old demo password `loanlens-demo`), compared case-insensitively;
+  - not equal to the email.
+  - The messages are plain sentences listing each problem.
+- **Email:** trimmed, lower-cased and checked with a regular expression (a single `@`, a dotted domain, length limits, no double dots). `email-validator`, which Pydantic's `EmailStr` needs, is not on the allowed dependency list.
+- **Input validation:** Pydantic models (`NewAccount`, `NewPassword`) with `hide_input_in_errors=True`. Their errors are turned into `InputError` and never echo the input.
+
+### D-076 Sign-in and lockout
+- **One message for every failure:** "Incorrect email or password", whether the email is unknown or malformed, the password is wrong, the account is locked or the account is deactivated. The reason is recorded only as a code in `auth_events`.
+- **Timing:** unknown or malformed emails and locked accounts still run one argon2 check against a dummy hash, so response time does not reveal whether an account exists.
+- **Lockout:**
+  - The fifth wrong password in a row sets `locked_until` to 15 minutes later and resets the counter.
+  - While locked, even the right password is refused.
+  - When the lock expires, counting starts again; a successful sign-in also resets the counter.
+- **Configuration:** `LOANLENS_LOCKOUT_ATTEMPTS`, `LOANLENS_LOCKOUT_MINUTES` and `LOANLENS_SESSION_MINUTES`, validated with Pydantic. An invalid value stops the app with a message naming the variable.
+- **Known trade-off:** sign-up says "An account with this email already exists", which reveals that an email is registered. Without email verification there is no way to hide this and still give a useful message. Logged under Suggestions.
+
+### D-077 Sessions (JWT)
+- **Token:** HS256 via PyJWT 2.10.1. Claims: `sub` (user id), `role`, `iat`, `exp`, `iss=loanlens`, all required on decode, with the algorithm list fixed to HS256 (so `alg: none` is rejected). No email or other personal data is in the token.
+- **Revalidation:** on every page load, `principal_from_token` checks the signature and expiry, then re-reads the account. It must exist, be active and still have the role named in the token. Deactivating an account or changing its role therefore ends its sessions at once.
+- **Secret:**
+  - Comes from `LOANLENS_JWT_SECRET` and must be at least 32 characters; shorter is refused.
+  - Missing in local development: one temporary key is generated per process, a warning is logged once and the sidebar shows it.
+  - Missing with `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1` (also `true`, `yes`, `on`): every page shows "LoanLens cannot start" and stops.
+- **Storage:** the token and principal live only in `st.session_state`. That is why a page refresh ends the session (a documented limitation).
+- **No revocation list:** a token issued before a password change stays valid until it expires (at most 60 minutes) unless the account is deactivated. Logged under Suggestions.
+
+### D-078 Roles are enforced in the service layer
+- **Checks:** every function in `loanlens.auth.service` that acts for a user takes a `Principal` and calls `require_role`. Manager functions (`list_users`, `create_manager`, `set_active`, `set_temporary_password`) and own-account functions (`change_password`, `delete_own_account`) also re-load the acting account inside the same database session. A hand-built `Principal(role="manager")` is therefore refused (tested).
+- **Pages:** they call `require_user(*roles)` in `app/ui_common.py`, which uses the same `require_role` and shows a plain message instead of the page.
+- **Not yet covered:** batch scoring and the Analytics data functions are gated by their pages, not inside `batch.py` and `storage.py`. The shared service layer for those (used by the API and worker) belongs to Milestone 3 in CLAUDE.md section 15, so it was not built here. Logged under Suggestions.
+
+### D-079 Creating managers
+- **Command line:** `python -m loanlens.auth create-manager --email <email>` reads the password twice with `getpass` and has no password option (passing `--password` is an argparse error). It prints only a success line, never the password. Managers created this way do not have to change their password, because they chose it themselves.
+- **Bootstrap:** uses `LOANLENS_BOOTSTRAP_MANAGER_EMAIL` and `_PASSWORD`, checked once per database per process when a page loads, and only if no manager exists.
+  - The bootstrapped manager must change the password at first sign-in, because it sat in the environment.
+  - Every outcome logs a warning without the email or password: created ("remove the settings now"), ignored because a manager exists, only one variable set, or the password failed the policy.
+- **Manager actions:**
+  - New managers created on the Users page must change their temporary password.
+  - A manager cannot change their own status or set their own temporary password; they use the Account page.
+  - The last active manager cannot delete their own account. Since managers cannot deactivate themselves, at least one active manager always remains.
+- **Temporary password:** setting one also clears a lockout. It is the documented way to reset a forgotten password.
+
+### D-080 Streamlit pages
+- **New pages:** `0_Sign_In.py` (tabs Sign in and Create account, forms that clear on submit), `5_Users.py` (managers) and `6_Account.py` (change password, delete account with a checkbox plus password confirmation). The existing page file names are unchanged, so links and tests keep working.
+- **Access:**
+  - Home, Sign in and About are public.
+  - Check My Eligibility and Account need any signed-in user; Bulk Check, Analytics and Users need a manager.
+  - A user who must change their password is sent to Account first.
+  - Missing access shows a plain message and a link to Sign in, never a stack trace.
+- **Sidebar:** shows the signed-in email (Markdown-escaped, so user text is shown literally), the role and a Sign out button. Signing out clears the whole session state, including any Bulk Check results.
+- **Links:** `ui_common.page_link` falls back to plain text when a page cannot be linked (for example a page run on its own in a test).
+- **Privacy note:** "Nothing you enter on this page is stored or logged" stays on Check My Eligibility, because form inputs are still not stored in this milestone. Account data is described on the Sign in page and in the docs.
+
+### D-081 Old shared-password gate removed
+- **Removed:** `src/loanlens/access.py`, the "Bank manager mode" toggle and password box, `LOANLENS_MANAGER_PASSWORD`, the Streamlit-secret fallback, the `streamlit_secrets` helper, the demo password `loanlens-demo` and their tests. Every doc mention is gone.
+- **Resolves** the Milestone 1 suggestion about the default demo password.
+- `.streamlit/secrets.toml` stays gitignored, and `test_no_secret_committed` still checks it.
+
+### D-082 Tests
+- **Isolation:** every test gets its own empty SQLite database. The autouse fixture in `tests/conftest.py` redirects `storage.db_path`, so accounts and batch summaries both go to `tmp_path`. It also clears every account-related environment variable and disposes cached engines afterwards. A developer's database is never touched.
+- **Generated secrets:** the signing key and test passwords are generated at run time (`secrets.token_urlsafe`); none are written in the repository.
+- **Speed:** tests use cheap argon2id parameters. One test reloads the shipped module and checks that production uses argon2id with the library defaults.
+- **Helpers:** `tests/app_support.py` creates an account and opens a page already signed in with the role it needs. Existing page tests now use it instead of the old gate.
+- **New files:**
+  - `tests/test_auth.py` (82 tests): service layer, settings, tokens, bootstrap, CLI and the no-secrets-at-rest check.
+  - `tests/test_auth_pages.py` (41 tests): AppTest flows.
+- `tests/test_db.py`: migration head `0002_auth`, the new tables in the CLI round trip, and a test that uses the real `storage.db_path`.
+
+### D-083 Documentation, screenshots and packaging
+- **Docs:** README (accounts and roles, quick start step 3, pages, security, structure, limitations), USER_GUIDE (new Part 0 on accounts, the Users page and the new messages) and PROJECT_EXPLAINED (Part 1 "Signing in" in plain words; Part 2 section 12 "Accounts and roles", with Security renumbered). Also `.env.example` (names only) and `requirements.txt` (argon2-cffi 25.1.0 and PyJWT 2.10.1, both on the allowed list).
+- **Screenshots:** four new ones, 09 Sign in, 10 Users, 11 Account and 12 applicant blocked, and all earlier ones retaken.
+  - The run used a throwaway database in the scratchpad, a generated signing key and generated passwords.
+  - It signed up an applicant, checked the three examples and showed the applicant blocked from Bulk Check.
+  - It then signed in as the bootstrapped manager, completed the forced password change, uploaded the 1,000-row file and opened Analytics, Users and About.
+  - The server log had no errors and contained none of the passwords.
+- **Packaging:** `pyproject.toml` now lists `auth/common_passwords.txt` and the Alembic template as package data, so a non-editable install has them.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -529,6 +626,9 @@ Each entry records what was found, what was chosen, and why.
 - Add a LICENSE file (for example MIT) so others know how they may reuse the code; the datasets keep their own licences.
 - Add GitHub repository topics (streamlit, explainable-ai, credit-scoring, xgboost, shap) and a short description.
 - Add a GitHub Actions workflow running `ruff` and the data-free part of `pytest` on each push.
-- **Default demo password (attention):** CLAUDE.md section 14 now says "no secrets or default passwords in the repository", but `src/loanlens/access.py` still falls back to the documented local demo password `loanlens-demo`, and README, USER_GUIDE and the tests describe it. Removing it changes the Bulk Check gate's behaviour and was not part of Milestone 1, so it was left as is. Suggested: drop the fallback (require `LOANLENS_MANAGER_PASSWORD`, stored as an argon2id hash) in a later milestone.
+- **Default demo password (resolved in Milestone 2, D-081):** CLAUDE.md section 14 now says "no secrets or default passwords in the repository", but `src/loanlens/access.py` still falls back to the documented local demo password `loanlens-demo`, and README, USER_GUIDE and the tests describe it. Removing it changes the Bulk Check gate's behaviour and was not part of Milestone 1, so it was left as is. Suggested: drop the fallback (require `LOANLENS_MANAGER_PASSWORD`, stored as an argon2id hash) in a later milestone.
 - Run the PostgreSQL tests (`LOANLENS_TEST_POSTGRES_URL`) against a disposable database, for example a local Docker container once Docker's engine is running, or in CI.
 - When another model version is activated, update the artifact lines in `.gitignore` (or move to a release-asset workflow for artifacts).
+- Revoke open sessions when a password changes, for example with a per-user token version checked in `principal_from_token` (today a token stays valid until it expires unless the account is deactivated).
+- When the shared service layer is built (Milestone 3), make batch scoring and analytics functions take a `Principal` and check the manager role there as well, not only in the pages.
+- Rate-limit sign-up and sign-in per client, and consider a larger breached-password list; sign-up currently reveals whether an email is registered (D-076).

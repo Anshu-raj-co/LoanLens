@@ -10,9 +10,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from app_support import open_page
 
 from loanlens import batch, storage
-from loanlens.access import DEMO_PASSWORD
 from loanlens.config import BatchConfig, StorageConfig, load_policy
 from loanlens.decision import decide
 from loanlens.schema import ValidationFailure, validate_applicant
@@ -315,23 +315,20 @@ class _Upload:
 
 def _bulk_page(app_path, monkeypatch, upload: bytes | None, tmp_path):
     import streamlit as st
-    from streamlit.testing.v1 import AppTest
 
     monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload(upload) if upload else None)
     monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "page.sqlite")
-    at = AppTest.from_file(str(Path(app_path) / "pages" / "2_Bulk_Check.py"), default_timeout=120)
-    at.run()
-    at.toggle(key="manager_mode").set_value(True).run()
-    at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
-    return at
+    return open_page("pages/2_Bulk_Check.py").run()
 
 
 def test_bulk_page_gated(app_path) -> None:
-    from streamlit.testing.v1 import AppTest
-
-    at = AppTest.from_file(str(Path(app_path) / "pages" / "2_Bulk_Check.py")).run()
+    at = open_page("pages/2_Bulk_Check.py", role=None).run()
     assert not at.exception
-    assert any("Bank manager mode" in i.value for i in at.info)
+    assert any("Please sign in" in i.value for i in at.info)
+    at = open_page("pages/2_Bulk_Check.py", role="applicant").run()
+    assert not at.exception
+    assert any("bank managers only" in i.value for i in at.info)
+    assert not at.get("download_button")
 
 
 def test_bulk_page_with_fixture(app_path, monkeypatch, tmp_path, fixture_bytes, artifact) -> None:

@@ -308,11 +308,9 @@ def test_template_still_has_no_product_column() -> None:
 
 
 def test_customer_page_loan_type_selector(app_path, artifact) -> None:
-    from streamlit.testing.v1 import AppTest
+    from app_support import open_page
 
-    at = AppTest.from_file(
-        str(Path(app_path) / "pages/1_Check_My_Eligibility.py"), default_timeout=120
-    ).run()
+    at = open_page("pages/1_Check_My_Eligibility.py").run()
     box = at.selectbox(key="form_loan_type")
     assert box.value == "personal" and list(box.options) == [
         "Personal loan",

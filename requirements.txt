@@ -20,6 +20,10 @@ SQLAlchemy==2.0.57
 alembic==1.20.1
 psycopg[binary]==3.3.8
 
+# Accounts (argon2id password hashes, signed session tokens)
+argon2-cffi==25.1.0
+PyJWT==2.10.1
+
 # Notebooks
 jupyter==1.1.1
 ipykernel==6.29.5

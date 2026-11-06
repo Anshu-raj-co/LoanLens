@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from app_support import open_page
 
 from loanlens import storage
-from loanlens.access import DEMO_PASSWORD
 from loanlens.config import PROJECT_ROOT
 from loanlens.examples import EXAMPLES
 
@@ -45,10 +45,13 @@ RENDERED_TEXT = [
 ]
 PAGES = [
     "Home.py",
+    "pages/0_Sign_In.py",
     "pages/1_Check_My_Eligibility.py",
     "pages/2_Bulk_Check.py",
     "pages/3_Analytics.py",
     "pages/4_About.py",
+    "pages/5_Users.py",
+    "pages/6_Account.py",
 ]
 FIXTURE = Path(__file__).parent / "fixtures" / "batch_1000.csv"
 
@@ -110,9 +113,7 @@ def _assert_clean(at, what: str) -> None:
 
 
 def _app(app_path: str, page: str):
-    from streamlit.testing.v1 import AppTest
-
-    return AppTest.from_file(str(Path(app_path) / page), default_timeout=120)
+    return open_page(page)
 
 
 @pytest.mark.parametrize("page", PAGES)
@@ -146,8 +147,6 @@ def test_no_emoji_on_bulk_check_with_fixture(app_path, artifact, monkeypatch, tm
     monkeypatch.setattr(st, "file_uploader", lambda *a, **k: _Upload())
     monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "page.sqlite")
     at = _app(app_path, "pages/2_Bulk_Check.py").run()
-    at.toggle(key="manager_mode").set_value(True).run()
-    at.text_input(key="manager_password").set_value(DEMO_PASSWORD).run()
     labels = [m.label for m in at.metric]
     assert {"Approved", "Rejected", "Borderline"} <= set(labels)
     _assert_clean(at, "Bulk Check with fixture")

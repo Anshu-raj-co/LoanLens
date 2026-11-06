@@ -1,9 +1,9 @@
-"""Customer mode: check my eligibility. Nothing entered here is stored or logged."""
+"""Check my eligibility (any signed-in user). Nothing entered here is stored or logged."""
 
 from __future__ import annotations
 
 import streamlit as st
-from ui_common import footer, friendly_failure, get_model, get_policy, setup_page
+from ui_common import footer, friendly_failure, get_model, get_policy, require_user, setup_page
 
 from loanlens.config import DEFAULT_PROFILE, list_profiles, load_profile
 from loanlens.decision import decide
@@ -22,6 +22,7 @@ from loanlens.schema import ValidationFailure
 from loanlens.theme import pill_html, policy_checks_html, status_label
 
 setup_page("Check My Eligibility")
+require_user()
 get_policy()  # stops with a friendly message if the policy files cannot be read
 artifact = get_model()
 

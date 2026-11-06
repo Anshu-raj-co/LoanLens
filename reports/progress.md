@@ -270,3 +270,22 @@
   - The app ran with all five pages and a 1,000-row upload, with no server-log errors (screenshot run).
 - **Not repeated:** the fresh-clone verification.
 - Decisions: D-070 to D-073.
+
+## Milestone 2: authentication and roles (done)
+- **Accounts:** `src/loanlens/auth/` holds the service layer, argon2id passwords, HS256 JWT sessions, settings and a CLI. Alembic `0002_auth` adds the `users` and `auth_events` tables.
+- **Roles:** applicant (self sign-up) and manager (CLI, one-time bootstrap or another manager). Roles are enforced in the service layer and in the pages.
+- **Rules:**
+  - password policy of 10 to 128 characters, not common, not the email;
+  - one generic sign-in error;
+  - 5 failures lock the account for 15 minutes;
+  - 60-minute sessions, re-validated on every page load;
+  - production or hosted mode refuses to start without `LOANLENS_JWT_SECRET`.
+- **Pages:** Sign in (Sign in and Create account tabs), Account (change password, delete account) and Users (list, create manager, deactivate or reactivate, temporary password). Forced password change. Check My Eligibility needs a signed-in user; Bulk Check and Analytics need a manager.
+- **Removed:** the old shared-password gate (`access.py`, `LOANLENS_MANAGER_PASSWORD`, the demo password).
+- **Checks on 2026-11-06 (this Windows machine):**
+  - 499 tests passed and 3 PostgreSQL tests skipped (no database available). Coverage of `src/loanlens` is 99%, and ruff is clean.
+  - A test confirms that no plaintext password or token appears in the database file, the `auth_events` rows or the logs.
+  - The six example decisions are byte-identical to the baseline, and `reports/example_decisions.md` regenerated unchanged.
+  - The live screenshot run had no server-log errors and no passwords in the log. It covered sign-up, the three examples, an applicant blocked from Bulk Check, the bootstrapped manager's forced password change, the 1,000-row upload, Analytics, Users and About.
+- **Not repeated:** the fresh-clone verification.
+- Decisions: D-074 to D-083.

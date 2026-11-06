@@ -10,11 +10,12 @@ from loanlens.db.engine import (
     session_scope,
     sqlite_url,
 )
-from loanlens.db.models import Base, BatchSummary, batch_rows
+from loanlens.db.models import AuthEvent, Base, BatchSummary, User, batch_rows
 
 __all__ = [
     "DEFAULT_URL",
     "ENV_VAR",
+    "AuthEvent",
     "Base",
     "BatchSummary",
     "DatabaseError",
@@ -24,4 +25,5 @@ __all__ = [
     "get_engine",
     "session_scope",
     "sqlite_url",
+    "User",
 ]

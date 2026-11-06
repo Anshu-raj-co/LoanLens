@@ -1,15 +1,16 @@
-"""Analytics: approval patterns in the training data, model drivers and the latest batch."""
+"""Analytics (bank managers only): approval patterns, model drivers and the latest batch."""
 
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-from ui_common import footer, get_model, get_policy, setup_page
+from ui_common import footer, get_model, get_policy, require_user, setup_page
 
-from loanlens import charts, cleaning, explain, storage
+from loanlens import auth, charts, cleaning, explain, storage
 from loanlens import model as model_mod
 
 setup_page("Analytics")
+require_user(auth.MANAGER)
 policy = get_policy()
 artifact = get_model()
 

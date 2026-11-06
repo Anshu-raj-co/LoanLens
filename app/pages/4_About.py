@@ -109,7 +109,8 @@ else:
 
 st.subheader("Future work")
 st.markdown(
-    "- Real authentication for bank staff (the Bulk Check gate is a prototype switch).\n"
+    "- Email verification and self-service password reset (today a bank manager sets a "
+    "temporary password).\n"
     "- Re-training and validation on real, consented bank data, with real policy thresholds.\n"
     "- Repayment data, if default risk is ever to be modelled (out of scope for this "
     "prototype)."

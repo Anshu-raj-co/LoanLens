@@ -14,11 +14,12 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 5. [How a decision is made](#how-a-decision-is-made)
 6. [Different kinds of loan](#different-kinds-of-loan)
 7. [Keeping a record](#keeping-a-record)
-8. [What the colours and labels mean](#what-the-colours-and-labels-mean)
-9. [What LoanLens is not](#what-loanlens-is-not)
-10. [Honest limits](#honest-limits)
-11. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
-12. [Glossary](#glossary)
+8. [Signing in](#signing-in)
+9. [What the colours and labels mean](#what-the-colours-and-labels-mean)
+10. [What LoanLens is not](#what-loanlens-is-not)
+11. [Honest limits](#honest-limits)
+12. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
+13. [Glossary](#glossary)
 
 **[Part 2: Technical deep dive](#part-2-technical-deep-dive)**
 1. [Architecture](#1-architecture)
@@ -32,8 +33,9 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 9. [UI and theme](#9-ui-and-theme)
 10. [Testing](#10-testing)
 11. [Benchmark](#11-benchmark)
-12. [Security and privacy](#12-security-and-privacy)
-13. [Assumptions, placeholders and future work](#13-assumptions-placeholders-and-future-work)
+12. [Accounts and roles](#12-accounts-and-roles)
+13. [Security and privacy](#13-security-and-privacy)
+14. [Assumptions, placeholders and future work](#14-assumptions-placeholders-and-future-work)
 
 ---
 
@@ -58,9 +60,9 @@ That is LoanLens. It gives:
 
 ## Two short stories
 
-**Priya checks herself.** Priya fills in a short form: her credit score (480), her income, the loan she wants and what she owns. She presses "Check eligibility". A red banner says **Rejected**. Underneath, it explains: "CIBIL score 480 is below the minimum 550." It adds a tip: paying every bill on time usually improves a credit score over a few months. And it says: "Raising your CIBIL score to about 550 would likely change the result." Priya now knows exactly what to work on. Nothing she typed is saved.
+**Priya checks herself.** Priya fills in a short form: her credit score (480), her income, the loan she wants and what she owns. She presses "Check eligibility". A red banner says **Rejected**. Underneath, it explains: "CIBIL score 480 is below the minimum 550." It adds a tip: paying every bill on time usually improves a credit score over a few months. And it says: "Raising your CIBIL score to about 550 would likely change the result." Priya now knows exactly what to work on. She had signed in with her own account first, but the details she typed into the form are not saved.
 
-**Ravi checks a whole list.** Ravi is a branch manager. He has a spreadsheet with 1,000 loan applicants. He switches on manager mode, types the password and uploads the file. LoanLens tells him that 20 rows have mistakes (a missing loan term, a word where a number should be) and lists each one with its row number, so he can fix them. It checks the other 980 in about a second: 547 look likely to be approved, 433 likely to be rejected, and 80 are close calls marked for a person to review. Every rejected row has its reasons. Ravi downloads the results as a spreadsheet.
+**Ravi checks a whole list.** Ravi is a branch manager. He has a spreadsheet with 1,000 loan applicants. He signs in with his bank manager account and uploads the file. LoanLens tells him that 20 rows have mistakes (a missing loan term, a word where a number should be) and lists each one with its row number, so he can fix them. It checks the other 980 in about a second: 547 look likely to be approved, 433 likely to be rejected, and 80 are close calls marked for a person to review. Every rejected row has its reasons. Ravi downloads the results as a spreadsheet.
 
 (Priya and Ravi are made up. Ravi's file is the project's computer-generated test file, not real people.)
 
@@ -91,6 +93,16 @@ Every answer notes which set of rules and which version of the pattern-finding p
 
 When a bank manager checks a whole list of applications, LoanLens saves only a short summary (how many were approved and rejected, and the most common reasons), never the people's details. That summary can go into a small file on the computer or into a larger shared database.
 
+## Signing in
+
+There are two kinds of account. Anyone can make an **applicant** account with an email address and a password, and use it to check their own details. **Bank manager** accounts can only be set up by the person running LoanLens or by another bank manager. Only managers can check a whole list, see the overall figures and look after the accounts.
+
+LoanLens keeps very little about each person: the email address, a scrambled form of the password that cannot be turned back into the password, the kind of account, and when it was made and last used. It also keeps a short note of each sign-in and account change, without the email address or password.
+
+Some simple protections are built in. Passwords must be at least 10 characters and must not be an easy, well-known one. After 5 wrong tries in a row, the account is locked for 15 minutes. When something is wrong at sign-in, the message never says whether it was the email or the password. Anyone can delete their own account at any time.
+
+There are honest limits too. LoanLens does not check that an email address really belongs to the person. If someone forgets their password, a bank manager gives them a temporary one, which they must change straight away. And refreshing the page signs you out, so you sign in again.
+
 ## What the colours and labels mean
 
 | What you see | What it means |
@@ -119,7 +131,7 @@ Colour is never the only signal: the status is always written as a word too ("Ap
 
 - Its **own policy limits** (minimum credit score, income and asset limits, and so on).
 - **Real repayment records**, to predict who is likely to repay, not just who was approved.
-- **Secure login** for staff, with a record of who did what.
+- A link to its **own staff login system**, a check that each email address is real, and a full record of who did what.
 - A **legal, compliance and fairness review** before using it with real customers.
 
 ## Glossary
@@ -136,6 +148,7 @@ Colour is never the only signal: the status is always written as a word too ("Ap
 | **Explainability** | Being able to say *why* the program gave its answer, in terms a person understands. |
 | **Borderline** | A close call, where a person should review the case before anything is decided. |
 | **Batch** | A whole list of applications checked in one go, usually uploaded as a spreadsheet (CSV file). |
+| **Account** | Your email address and password, which let LoanLens know who you are and which pages you may use. |
 
 ---
 
@@ -161,6 +174,10 @@ flowchart LR
     BATCH --> BULK["Bulk Check page"]
     BATCH --> STORE["storage.py + db/<br/>SQLAlchemy, Alembic:<br/>anonymised batch summaries<br/>(SQLite or PostgreSQL)"]
     STORE --> ANALYTICS["Analytics page"]
+    AUTH["auth/<br/>accounts, argon2id,<br/>JWT sessions, roles"] --> CUST
+    AUTH --> BULK
+    AUTH --> ANALYTICS
+    AUTH --> USERS["Users and Account pages"]
 ```
 
 The Streamlit pages in `app/` contain layout only; every decision, rule, explanation and text template lives in `src/loanlens/`. All thresholds come from the policy profiles in `config/policies/`.
@@ -303,11 +320,11 @@ For each application: validate → rules → model probability `p` → Approved 
 - **Measured speed:** 1,000 rows 0.7 s, 10,000 rows 6.2 s, 50,000 rows 16-32 s.
 - **Storage:** `storage.py` writes one anonymised row per batch (counts, approval rate, likelihood-band counts, top rejection reason codes, model version). No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off).
 
-**Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revision `0001_initial`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; the Bulk Check page still shows results and notes that the summary was not saved. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set.
+**Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revisions `0001_initial` and `0002_auth`, which adds `users` and `auth_events`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; the Bulk Check page still shows results and notes that the summary was not saved. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set.
 
 ## 9. UI and theme
 
-Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and About. `app/ui_common.py` adds the header strip (the title "LoanLens" only), sidebar, prototype notice and footer to every page, and turns errors (missing model, model file that fails its hash check, bad policy file) into friendly messages; the customer form has a **Loan type** selector and the About page lists every profile's values side by side and every registered model version; `.streamlit/config.toml` hides stack traces.
+Eight Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check, Analytics, About, Users and Account. Home, Sign in and About are public; Check My Eligibility and Account need any signed-in user; Bulk Check, Analytics and Users need the manager role. `app/ui_common.py` adds the header strip (the title "LoanLens" only), the sidebar (with the signed-in email, role and a Sign out button), prototype notice and footer to every page, re-validates the session on every page load, stops a page with a plain message and a Sign in link when access is missing, and turns errors (missing model, model file that fails its hash check, bad policy file) into friendly messages; the customer form has a **Loan type** selector and the About page lists every profile's values side by side and every registered model version; `.streamlit/config.toml` hides stack traces.
 
 `src/loanlens/theme.py` is the single home for every colour, the status-to-colour mapping, the CSS and the Plotly template. Approved is green, Rejected red, borderline amber, neutral series blue, on a white background.
 
@@ -315,7 +332,7 @@ Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and Abou
 
 ## 10. Testing
 
-376 tests passing, 3 PostgreSQL tests skipped without a database (pytest), 98% coverage of `src/loanlens`, `ruff` clean. Categories:
+499 passing, 3 PostgreSQL tests skipped without a database (pytest), 99% coverage of `src/loanlens`, `ruff` clean. Categories:
 
 - cleaning, features and EMI, each policy rule and its thresholds (including values exactly at each limit), config validation;
 - schema validation and friendly messages;
@@ -324,7 +341,8 @@ Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and Abou
 - batch validation (good CSV, bad rows, missing columns, empty, BOM-only and header-only files, other delimiters, aliases, too many rows, 1,000 rows in 10 s or less);
 - the **single-versus-batch consistency test**: 600 rows of the test file give exactly the same status, probability (within 1e-6), reasons and borderline flag through `decide()` and through the batch path;
 - storage anonymity, theme and contrast, the benchmark notebook's isolation, and headless page tests (Streamlit AppTest) for every page;
-- the database layer (migrations, round trip, legacy databases, URL handling, friendly errors; on PostgreSQL too when configured), policy profiles (personal reproduces the six example decisions, each profile's rules apply, unknown profiles, the content hash, the `product` column) and the model registry (round trip, activation, environment override, hash mismatch, legacy migration, CLI, unchanged predictions).
+- the database layer (migrations, round trip, legacy databases, URL handling, friendly errors; on PostgreSQL too when configured), policy profiles (personal reproduces the six example decisions, each profile's rules apply, unknown profiles, the content hash, the `product` column) and the model registry (round trip, activation, environment override, hash mismatch, legacy migration, CLI, unchanged predictions);
+- authentication (`tests/test_auth.py`, `tests/test_auth_pages.py`): argon2id hashing, the password policy and email checks, lockout and unlock (at a given time), token expiry and tampering (bad signature, edited payload, `alg: none`, missing claims, role mismatch), role enforcement in the service layer (including a hand-built principal), manager actions, bootstrap and the CLI, account deletion, and AppTest flows (register, sign in, wrong password, applicant blocked from manager pages, manager allowed, sign out, expired session, forced password change). One test scans the database file, the `auth_events` rows and the captured logs for every password and token used and finds none.
 
 The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), with 20 deliberately bad rows. Tests that need the Kaggle data or the model skip themselves cleanly on a fresh clone.
 
@@ -336,14 +354,26 @@ The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), wi
 - **Label caution:** approval there rises with interest rate and loan-to-income, which looks like a default label; the Kaggle page itself describes the label as repaid/defaulted.
 - **Conclusion:** each synthetic dataset follows one rule-like field. A real system needs previous defaults, employment experience, home ownership, loan purpose, the offered rate and existing EMIs. Full comparison: [reports/benchmark.md](reports/benchmark.md).
 
-## 12. Security and privacy
+## 12. Accounts and roles
 
-- **Customer mode stores nothing:** inputs live in memory for the request only.
+`src/loanlens/auth/` is the service layer for accounts; the pages only call it.
+
+- **Tables** (Alembic `0002_auth`): `users` (id, `audit_ref` as a separate random UUID for pseudonymous records, email unique and lower-case, `password_hash`, role `applicant` or `manager` with a check constraint, `is_active`, `must_change_password`, `created_at`, `last_login_at`, `failed_attempts`, `locked_until`) and `auth_events` (`occurred_at`, `user_id`, `actor_id` for manager actions, `event_type`, `success`, `reason`). Both event links are cleared when an account is deleted.
+- **Passwords** (`passwords.py`): argon2id through argon2-cffi with its defaults (RFC 9106 low-memory profile); hashes are refreshed at sign-in if the parameters change. Policy: 10 to 128 characters, not in `common_passwords.txt` (about 130 entries, including the old demo password), not equal to the email. Emails are validated with a regular expression (no extra dependency) and lower-cased.
+- **Sign-in** (`service.sign_in`): one generic error for every failure. Unknown and malformed emails still run a dummy argon2 check, so timing does not reveal whether an account exists. After `LOANLENS_LOCKOUT_ATTEMPTS` (5) wrong passwords the account is locked for `LOANLENS_LOCKOUT_MINUTES` (15); a success or an expired lock resets the counter; inactive accounts are refused.
+- **Sessions** (`tokens.py`): HS256 JWT with `sub` (user id), `role`, `iat`, `exp` and `iss`, signed with `LOANLENS_JWT_SECRET` (at least 32 characters) and valid for `LOANLENS_SESSION_MINUTES` (60). `principal_from_token` verifies the signature, expiry and required claims, then re-reads the account, which must exist, be active and have the token's role. Without a secret, development uses a per-process temporary key with a visible warning, and production or hosted mode refuses to start (`ConfigurationError`).
+- **Roles:** every service function takes a `Principal` and checks it with `require_role`; manager functions also re-load the acting account from the database, so a hand-built principal cannot claim the manager role. Applicants sign up themselves; managers come from `python -m loanlens.auth create-manager` (getpass prompt, never an argument), the one-time `LOANLENS_BOOTSTRAP_MANAGER_*` settings (only while no manager exists, with a logged warning to remove them; the new manager must change the password) or another manager. A manager cannot change their own status, and the last active manager cannot delete their account.
+- **Limits:** no email verification, no self-service reset (a manager sets a temporary password, which sets `must_change_password` and clears a lock), and the Streamlit session ends on page refresh because the token lives only in `st.session_state`.
+
+## 13. Security and privacy
+
+- **No default credentials:** the old shared manager password and `LOANLENS_MANAGER_PASSWORD` are gone. Passwords are argon2id hashes; passwords, tokens and email addresses are never logged or written to `auth_events`, and a test checks this.
+- **Eligibility inputs are not stored:** they live in memory for the request only. What is stored per account is listed in section 12.
 - **Bulk Check** stores only anonymised batch summaries, in a local SQLite file or the database named by `DATABASE_URL` (ORM or parameterised statements only; the URL is never logged or shown).
-- **Manager gate:** a prototype gate, not authentication. The password comes from `LOANLENS_MANAGER_PASSWORD`, then the Streamlit secret `manager_password`, then the documented local demo default `loanlens-demo` (the sidebar says when it is in use). Comparison is constant-time. Set your own password before showing the app to anyone, and never host it publicly with the demo password.
+- **Configuration** comes from environment variables (`.env.example` lists the names only); inputs are validated with Pydantic, and database access uses the ORM or parameterised statements only.
 - **Gitignored:** `data/raw/` and `data/processed/` (third-party data), archived model versions (the registry and the active 0.4 MB artifact are committed), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
 
-## 13. Assumptions, placeholders and future work
+## 14. Assumptions, placeholders and future work
 
 Every value below is illustrative; a lender would replace it with its own credit policy (full list with reasoning at the top of [reports/decisions_log.md](reports/decisions_log.md)):
 
@@ -353,6 +383,6 @@ Every value below is illustrative; a lender would replace it with its own credit
 - approval threshold 0.5; borderline band 40-60%; borderline CIBIL margin ±25 points;
 - likelihood bands 85 / 65 / 35 / 15%;
 - batch limit 50,000 rows; negative assets set to 0;
-- the manager-gate demo password.
+- account settings: lockout after 5 failed sign-ins for 15 minutes, 60-minute sessions and the 10-character minimum password length (the first three are configurable).
 
-**Future work:** real policy thresholds; repayment outcome data and a separate default-risk model; integration with origination and bureau systems; real authentication with roles and audit logging; a compliance and fairness review; collecting previous defaults, employment experience, home ownership, loan purpose, offered rate and existing EMIs; optional dashboard-ready exports.
+**Future work:** real policy thresholds; repayment outcome data and a separate default-risk model; integration with origination and bureau systems; a decision audit trail; email verification and self-service password reset; a compliance and fairness review; collecting previous defaults, employment experience, home ownership, loan purpose, offered rate and existing EMIs; optional dashboard-ready exports.

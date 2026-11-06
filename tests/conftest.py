@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 import pandas as pd
 import pytest
+from argon2 import PasswordHasher, Type
 
-from loanlens import cleaning, model
+from loanlens import cleaning, model, storage
+from loanlens.auth import passwords
+from loanlens.auth import service as auth_service
+from loanlens.auth import settings as auth_settings
+from loanlens.db import engine as db_engine
+
+AUTH_ENV = (
+    auth_settings.ENV_MODE,
+    auth_settings.ENV_HOSTED,
+    auth_settings.ENV_SESSION_MINUTES,
+    auth_settings.ENV_LOCKOUT_ATTEMPTS,
+    auth_settings.ENV_LOCKOUT_MINUTES,
+    auth_settings.ENV_BOOTSTRAP_EMAIL,
+    auth_settings.ENV_BOOTSTRAP_PASSWORD,
+)
+# Generated per test run, never stored: the signing key for test sessions.
+TEST_JWT_SECRET = secrets.token_urlsafe(48)
+# Cheap argon2id parameters so the suite stays fast; production uses the library defaults.
+FAST_HASHER = PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1, type=Type.ID)
 
 
 @pytest.fixture(scope="session")
@@ -19,10 +39,23 @@ def clean_df() -> pd.DataFrame:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests never use a developer's database or pinned model version."""
+def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Tests never use a developer's database, settings or pinned model version.
+
+    Every test gets its own empty SQLite database (``storage.db_path`` is redirected, so
+    accounts and batch summaries both go there), a generated signing key and a fast hasher.
+    """
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("LOANLENS_MODEL_VERSION", raising=False)
+    for name in AUTH_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(auth_settings.ENV_SECRET, TEST_JWT_SECRET)
+    monkeypatch.setattr(storage, "db_path", lambda policy=None: tmp_path / "loanlens.sqlite")
+    monkeypatch.setattr(passwords, "HASHER", FAST_HASHER)
+    auth_service.reset_bootstrap_check()
+    auth_settings.reset_ephemeral_key()
+    yield
+    db_engine.reset_caches()
 
 
 @pytest.fixture(scope="session")
