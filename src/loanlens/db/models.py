@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -82,6 +83,9 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Raised on a password change, a temporary password or a status change; session tokens
+    # carry the value they were issued with, and older tokens are rejected.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class AuthEvent(Base):
@@ -101,3 +105,36 @@ class AuthEvent(Base):
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(64))
+
+
+class DecisionAudit(Base):
+    """One decision, append-only (database triggers reject UPDATE and DELETE).
+
+    ``user_ref`` is the signed-in user's random ``audit_ref``, never an email or name, so
+    once the account is deleted the record can no longer be linked to a person. ``inputs``
+    holds only the model input fields.
+    """
+
+    __tablename__ = "decision_audit"
+    __table_args__ = (
+        CheckConstraint("channel IN ('ui', 'api', 'batch')", name="ck_decision_audit_channel"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    user_ref: Mapped[str | None] = mapped_column(String(36), index=True)
+    actor_role: Mapped[str | None] = mapped_column(String(16))
+    channel: Mapped[str] = mapped_column(String(8), nullable=False)
+    batch_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    profile: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    policy_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    inputs: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    probability: Mapped[float] = mapped_column(Float, nullable=False)
+    borderline: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reason_codes: Mapped[list] = mapped_column(JSON, nullable=False)

@@ -31,6 +31,10 @@ PAGES = [
      "Upload a CSV of many applicants, review every result and download them."),
     ("pages/3_Analytics.py", "Analytics (bank managers)",
      "Approval patterns in the training data, model drivers and the latest batch."),
+    ("pages/7_My_History.py", "My history",
+     "For signed-in users: every check you have made, with a CSV download."),
+    ("pages/8_Audit.py", "Audit (bank managers)",
+     "The append-only record of every decision, with filters, counts and CSV export."),
     ("pages/4_About.py", "About and model card",
      "Data source, metrics, assumptions, limitations and current policy settings."),
 ]  # fmt: skip

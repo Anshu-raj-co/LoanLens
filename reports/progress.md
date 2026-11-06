@@ -289,3 +289,20 @@
   - The live screenshot run had no server-log errors and no passwords in the log. It covered sign-up, the three examples, an applicant blocked from Bulk Check, the bootstrapped manager's forced password change, the 1,000-row upload, Analytics, Users and About.
 - **Not repeated:** the fresh-clone verification.
 - Decisions: D-074 to D-083.
+
+## Milestone 3: audit trail and REST API (done)
+- **Audit trail:** `decision_audit` (Alembic `0003_audit`) records every decision from the UI, the API and Bulk Check (chunked inserts). It is append-only: there are no update or delete code paths, and triggers reject UPDATE and DELETE on SQLite and PostgreSQL. A decision is shown only after its record is written. New pages: My History (own records, CSV) and Audit (managers; filters, counts, CSV).
+- **Service layer:** `src/loanlens/services.py`. Every scoring, batch, analytics, batch-summary and audit function verifies a sealed principal and its role itself. Pages and the API call only these functions.
+- **Sessions:** a token version on `users`. A password change, a temporary password and deactivation or reactivation invalidate older tokens; the changing session gets a fresh token.
+- **REST API:** FastAPI under `/v1`, with health and ready endpoints and OpenAPI docs at `/docs`.
+  - request ids stored in the audit trail, JSON logs without personal data, one error format;
+  - CORS off by default;
+  - in-memory rate limits per client address and per account on sign-in and registration.
+- **Checks on 2026-11-06 (this Windows machine):**
+  - 655 tests passed and 8 skipped (7 PostgreSQL tests, because `LOANLENS_TEST_POSTGRES_URL` is not set, and one PostgreSQL-only TRUNCATE check on SQLite). Coverage of `src/loanlens` is 99%, and ruff is clean.
+  - **No PostgreSQL test ran**, so PostgreSQL support, including the PostgreSQL triggers, is not verified.
+  - The six example decisions are byte-identical to the baseline, and `reports/example_decisions.md` regenerated unchanged.
+  - The API was served live with uvicorn and exercised with curl (register, login, score, audit, roles); its log had no personal data.
+  - The screenshot run (all pages, including My History and Audit) had no server-log errors and no passwords in the log.
+- **Not repeated:** the fresh-clone verification.
+- Decisions: D-084 to D-090.

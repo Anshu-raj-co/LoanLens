@@ -8,6 +8,8 @@ Nothing in this module logs or stores a password, a token or an email address in
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import uuid
@@ -55,14 +57,18 @@ class LoginFailed(AuthError):
         super().__init__(GENERIC_LOGIN_ERROR)
 
 
-class InvalidSession(AuthError):
+class AuthorisationError(AuthError):
+    """Not allowed: no valid sign-in, or a role that does not permit the action."""
+
+
+class InvalidSession(AuthorisationError):
     """No session, or the session token is expired, tampered with or no longer valid."""
 
     def __init__(self, message: str = SESSION_ENDED) -> None:
         super().__init__(message)
 
 
-class PermissionDenied(AuthError):
+class PermissionDenied(AuthorisationError):
     """The signed-in user's role does not allow this action."""
 
 
@@ -146,6 +152,10 @@ class Principal:
     role: str
     audit_ref: str
     must_change_password: bool = False
+    token_version: int = 0
+    # HMAC over the identity fields, set only by this module. A principal built by hand has
+    # no valid seal and is refused by every protected function.
+    seal: str = field(default="", repr=False, compare=False)
 
     @property
     def is_manager(self) -> bool:
@@ -235,11 +245,26 @@ def _event(
     )  # fmt: skip
 
 
+def _seal(user_id: int, role: str, audit_ref: str, token_version: int) -> str:
+    message = f"principal|{user_id}|{role}|{audit_ref}|{token_version}".encode()
+    key = settings.signing_key().value.encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+
 def _principal(user: User) -> Principal:
+    version = int(user.token_version or 0)
     return Principal(
         user_id=user.id, email=user.email, role=user.role, audit_ref=user.audit_ref,
-        must_change_password=bool(user.must_change_password),
+        must_change_password=bool(user.must_change_password), token_version=version,
+        seal=_seal(user.id, user.role, user.audit_ref, version),
     )  # fmt: skip
+
+
+def _sealed(principal: Principal) -> bool:
+    expected = _seal(
+        principal.user_id, principal.role, principal.audit_ref, principal.token_version
+    )
+    return hmac.compare_digest(str(principal.seal or ""), expected)
 
 
 def _view(user: User, now: datetime) -> UserView:
@@ -266,8 +291,9 @@ def _by_email(session: DbSession, email: str) -> User | None:
 def _issue(user: User) -> SignedIn:
     key = settings.signing_key()
     token, expires = tokens.issue_token(
-        user.id, user.role, key.value, settings.load_settings().session_minutes
-    )
+        user.id, user.role, key.value, settings.load_settings().session_minutes,
+        version=int(user.token_version or 0),
+    )  # fmt: skip
     return SignedIn(token=token, principal=_principal(user), expires_at=expires)
 
 
@@ -289,14 +315,42 @@ def require_manager(principal: Principal | None) -> Principal:
     return require_role(principal, MANAGER)
 
 
+UNVERIFIED = "This sign-in could not be verified. Please sign in again."
+
+
 def _load_actor(session: DbSession, principal: Principal, *roles: str) -> User:
-    """Re-read the acting account: it must still exist, be active and hold the role."""
+    """Re-read the acting account and check the principal really came from a sign-in.
+
+    The principal's seal must be valid, and the account must still exist, be active, have
+    the same role and the same token version (a password or status change since the
+    principal was issued makes it stale).
+    """
+    if not _sealed(principal):
+        raise InvalidSession(UNVERIFIED)
     user = session.get(User, principal.user_id)
-    if user is None or not user.is_active:
+    if (
+        user is None
+        or not user.is_active
+        or int(user.token_version or 0) != principal.token_version
+        or user.role != principal.role
+    ):
         raise InvalidSession()
     if roles and user.role not in roles:
         raise PermissionDenied("This is available to bank managers only.")
     return user
+
+
+def verify_principal(principal: Principal | None, *roles: str, url: str | None = None) -> Principal:
+    """The current, verified principal (raises :class:`AuthorisationError` otherwise).
+
+    Every protected service function calls this first: the principal must be a sealed
+    principal from a sign-in, the account must still be active with the same role and token
+    version, and (when ``roles`` are given) the role must be one of them.
+    """
+    claimed = require_role(principal, *roles)
+    with _db(url) as session:
+        user = _load_actor(session, claimed, *roles)
+        return _principal(user)
 
 
 # ---- Accounts --------------------------------------------------------------------------------
@@ -470,8 +524,9 @@ def sign_in(
                         user.password_hash = passwords.hash_password(password)
                     _event(session, "sign_in", True, user.id)
                     token, expires = tokens.issue_token(
-                        user.id, user.role, key.value, config.session_minutes, now=now
-                    )
+                        user.id, user.role, key.value, config.session_minutes, now=now,
+                        version=int(user.token_version or 0),
+                    )  # fmt: skip
                     result = SignedIn(token=token, principal=_principal(user), expires_at=expires)
     if result is None:
         raise LoginFailed()
@@ -484,7 +539,8 @@ def principal_from_token(
     """Validate a session token and re-read the account; raises :class:`InvalidSession`.
 
     The token must have a valid signature and must not have expired, and the account must
-    still exist, be active and have the role named in the token.
+    still exist, be active and have the role and token version named in the token. A token
+    issued before a password or status change therefore no longer works.
     """
     key = settings.signing_key()
     try:
@@ -493,7 +549,12 @@ def principal_from_token(
         raise InvalidSession() from None
     with _db(url) as session:
         user = session.get(User, int(claims["sub"]))
-        if user is None or not user.is_active or user.role != claims["role"]:
+        if (
+            user is None
+            or not user.is_active
+            or user.role != claims["role"]
+            or int(user.token_version or 0) != claims["ver"]
+        ):
             raise InvalidSession()
         return _principal(user)
 
@@ -512,8 +573,12 @@ def sign_out(principal: Principal | None, *, url: str | None = None) -> None:
 def change_password(
     principal: Principal | None, current_password: str, new_password: str,
     *, url: str | None = None,
-) -> Principal:  # fmt: skip
-    """Change the signed-in user's own password (the current password is required)."""
+) -> SignedIn:  # fmt: skip
+    """Change the signed-in user's own password (the current password is required).
+
+    Every other open session of the account stops working; the caller gets a fresh session
+    (new token and principal) so the session that made the change stays signed in.
+    """
     me = require_role(principal)
     with _db(url) as session:
         user = _load_actor(session, me)
@@ -527,8 +592,9 @@ def change_password(
             _validate(NewPassword, password=new_password, email=user.email)
             user.password_hash = passwords.hash_password(new_password)
             user.must_change_password = False
+            user.token_version = int(user.token_version or 0) + 1
             _event(session, "password_change", True, user.id)
-            updated = _principal(user)
+            updated = _issue(user)
     if failed:
         raise AccountError("The current password is not correct.")
     return updated
@@ -602,6 +668,7 @@ def set_active(
         _load_actor(session, actor, MANAGER)
         user = _other_user(session, actor, int(user_id), "deactivate or reactivate")
         user.is_active = bool(active)
+        user.token_version = int(user.token_version or 0) + 1  # end the account's sessions
         if active:
             user.failed_attempts, user.locked_until = 0, None
         event = "user_reactivated" if active else "user_deactivated"
@@ -626,6 +693,7 @@ def set_temporary_password(
         user.password_hash = passwords.hash_password(temporary_password)
         user.must_change_password = True
         user.failed_attempts, user.locked_until = 0, None
+        user.token_version = int(user.token_version or 0) + 1  # end the account's sessions
         _event(session, "password_reset", True, user.id, actor_id=actor.user_id)
         view = _view(user, _now())
     return view

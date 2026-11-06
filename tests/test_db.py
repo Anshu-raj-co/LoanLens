@@ -20,7 +20,7 @@ from loanlens.db import engine as db_engine
 from loanlens.db.engine import DatabaseError, normalise_url
 
 PG_ENV = "LOANLENS_TEST_POSTGRES_URL"
-HEAD = "0002_auth"
+HEAD = "0003_audit"
 REAL_DB_PATH = storage.db_path  # captured before the autouse fixture redirects it
 SUMMARY = {
     "total_rows": 10,
@@ -42,7 +42,8 @@ def _clean_postgres(url: str) -> None:
     db_engine.reset_caches()
     with db_engine.get_engine(url).begin() as conn:
         for table in (
-            "auth_events", "users", "batch_rows", "batch_summaries", "alembic_version",
+            "decision_audit", "auth_events", "users", "batch_rows", "batch_summaries",
+            "alembic_version",
         ):  # fmt: skip
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
     db_engine.reset_caches()
@@ -66,7 +67,14 @@ def db_url(request, tmp_path) -> str:
 def test_migration_creates_tables(db_url) -> None:
     db_engine.ensure_schema(db_url)
     names = set(inspect(db_engine.get_engine(db_url)).get_table_names())
-    assert {"batch_summaries", "batch_rows", "users", "auth_events", "alembic_version"} <= names
+    assert {
+        "batch_summaries",
+        "batch_rows",
+        "users",
+        "auth_events",
+        "decision_audit",
+        "alembic_version",
+    } <= names
     with db_engine.get_engine(db_url).connect() as conn:
         assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == HEAD
     db_engine.ensure_schema(db_url)  # idempotent
@@ -183,7 +191,14 @@ def test_alembic_command_line(tmp_path, monkeypatch, capsys) -> None:
     command.upgrade(cfg, "head")
     with sqlite3.connect(db) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"batch_summaries", "batch_rows", "users", "auth_events", "alembic_version"} <= names
+    assert {
+        "batch_summaries",
+        "batch_rows",
+        "users",
+        "auth_events",
+        "decision_audit",
+        "alembic_version",
+    } <= names
     command.downgrade(cfg, "base")
     with sqlite3.connect(db) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

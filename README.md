@@ -6,7 +6,7 @@
 
 ![Check My Eligibility: a rejected and borderline result with reasons and what would change it](reports/screenshots/04_eligibility_rejected_borderline.png)
 
-LoanLens is a **pre-screening and decision-support prototype**, an independent proof of concept. It has two signed-in roles: an **applicant** checks their own details in a form, and a **bank manager** uploads a CSV of many applicants and gets a decision, a likelihood and reasons for every row, and manages user accounts.
+LoanLens is a **pre-screening and decision-support prototype**, an independent proof of concept. It has two signed-in roles: an **applicant** checks their own details in a form, and a **bank manager** uploads a CSV of many applicants and gets a decision, a likelihood and reasons for every row, reviews the audit trail and manages user accounts. A REST API offers the same decisions to other systems, and every decision is recorded in an append-only audit trail.
 
 > **Approval, not default.** LoanLens predicts the loan *approval decision* recorded in a public, **synthetic** dataset. It does **not** predict default (a disbursed loan that later goes unpaid, NPA / 90+ days overdue), because there is no repayment data. It is not a lending decision, no real customer or bank data is used, and no real-world accuracy is claimed. Every policy threshold is a placeholder, illustrative until replaced by a lender's real credit policy.
 
@@ -22,6 +22,8 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 - [The pages](#the-pages)
 - [How a decision is made](#how-a-decision-is-made)
 - [Accounts and roles](#accounts-and-roles)
+- [Audit trail and history](#audit-trail-and-history)
+- [REST API](#rest-api)
 - [Security notes](#security-notes)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -36,7 +38,7 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 | **Chosen model** | XGBoost with monotone constraints (a higher CIBIL never lowers, a bigger loan never raises the score) and isotonic calibration, on 5 features. Chosen as the simplest model within about 1% of the best; the constraints cost 0.4 ROC-AUC points. |
 | **Cross-validation** (stratified 5-fold, seed 42) | ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546 |
 | **Leakage check** | Shuffled labels give ROC-AUC 0.499 (chance). CIBIL alone reaches 0.960; without CIBIL the model drops to 0.584. |
-| **Tests** | 499 passing, 3 PostgreSQL tests skipped without a database (`pytest`), 99% coverage of `src/loanlens`, `ruff` clean |
+| **Tests** | 655 passing, 8 skipped (7 PostgreSQL tests without a PostgreSQL database and one PostgreSQL-only check on SQLite) (`pytest`), 99% coverage of `src/loanlens`, `ruff` clean |
 | **Batch speed** (measured) | 1,000 rows in about 0.7 s, 10,000 rows in about 6.2 s, 50,000 rows in about 16-32 s |
 | **Benchmark** | In the primary dataset, **CIBIL dominates** (about 99% approved above 550, about 10% at or below). In `bank_loan_data.csv`, **a previous default dominates** and credit score alone had almost no effect (ROC-AUC 0.50). |
 
@@ -53,6 +55,7 @@ All screenshots use the built-in hypothetical example applicants or the fully sy
 | ![Rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png) **Rejected + borderline:** CIBIL 540 is just below the minimum, so manual review is recommended. | ![Bulk Check](reports/screenshots/05_bulk_check.png) **Bulk Check:** 1,000-row synthetic upload with summary cards, the skipped-rows report and coloured status cells. |
 | ![Analytics](reports/screenshots/06_analytics.png) **Analytics:** approval patterns in the training data, model drivers and the latest batch. | ![About](reports/screenshots/07_about.png) **About:** framing, metrics, current policy settings, borderline rules, benchmark and model card. |
 | ![Sign in](reports/screenshots/09_sign_in.png) **Sign in:** two tabs, Sign in and Create account (applicants only), with the password rules and what is stored. | ![Users](reports/screenshots/10_users.png) **Users (managers):** every account with role, status, created and last sign-in; create a manager, deactivate or reactivate, set a temporary password. |
+| ![My History](reports/screenshots/13_my_history.png) **My History:** an applicant's own checks with date, loan type, status, likelihood and reasons, and a CSV download. | ![Audit](reports/screenshots/14_audit.png) **Audit (managers):** every decision (here 980 batch rows and 3 form checks), filters, counts and CSV export. |
 | ![Account](reports/screenshots/11_account.png) **Account:** change password (required after a temporary password) and delete the account with a confirmation step. | ![Applicant blocked](reports/screenshots/12_applicant_blocked.png) **Access rules:** an applicant who opens Bulk Check sees a plain message instead of the page. |
 
 ## Documentation
@@ -115,11 +118,13 @@ Licences were read from Kaggle's dataset metadata; please check each page yourse
 |---|---|
 | **Home** (public) | Purpose, the placeholder-thresholds notice, links to every page and a short "how a result is decided" summary. |
 | **Sign in** (public) | Two tabs: **Sign in**, and **Create account** for applicants. Manager accounts cannot be created here. |
-| **Check My Eligibility** (any signed-in user) | A **Loan type** selector (personal, home, vehicle) and an 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). **Nothing entered is stored or logged.** |
-| **Bulk Check** (bank managers) | Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. An optional `product` column picks each row's loan type (blank means personal; an unknown value is a row problem). Only an **anonymised summary** of each batch is saved (in `data/loanlens.sqlite`, or the database named by `DATABASE_URL`). |
+| **Check My Eligibility** (any signed-in user) | A **Loan type** selector (personal, home, vehicle) and an 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). Each check is saved to the account's **history** and the **audit trail** (model inputs, result and versions; never an email or name). |
+| **Bulk Check** (bank managers) | Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. An optional `product` column picks each row's loan type (blank means personal; an unknown value is a row problem). Every scored row is written to the **audit trail** (model inputs, result, versions and the manager's random reference; no names or applicant IDs), and an **anonymised summary** of the batch is saved for Analytics (in `data/loanlens.sqlite`, or the database named by `DATABASE_URL`). |
 | **Analytics** (bank managers) | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. |
 | **About** (public) | The framing, data source, the active model version and its metrics, every registered model version, every loan type's policy values side by side with the enforce settings, how the borderline flag works, the benchmark summary and the full model card. |
 | **Users** (bank managers) | Every account (email, role, status, created, last sign-in). Create another manager, deactivate or reactivate an account, set a temporary password. |
+| **My History** (any signed-in user) | Your own past checks (date, loan type, status, likelihood band, reasons) with a CSV download. Nobody else's records are ever shown. |
+| **Audit** (bank managers) | The whole decision audit trail with filters (date range, status, loan type, channel, model version, policy version), counts and CSV export. |
 | **Account** (any signed-in user) | Change your password (required after a temporary password) and delete your account, with a confirmation step. |
 
 ## How a decision is made
@@ -169,7 +174,7 @@ The app loads the active version, or the one named by `LOANLENS_MODEL_VERSION`, 
 
 ## Database
 
-Anonymised batch summaries are stored through SQLAlchemy 2. The database comes from the `DATABASE_URL` environment variable; without it LoanLens uses the local SQLite file `sqlite:///data/loanlens.sqlite`. PostgreSQL works through psycopg (`postgresql://...`). The schema is managed by Alembic (`src/loanlens/db/migrations/`); the app applies migrations itself, or run `alembic upgrade head` from the project root. A database that cannot be reached gives a plain message, never a stack trace, and never blocks Bulk Check results. `.env.example` lists the environment variable names (no values).
+Anonymised batch summaries are stored through SQLAlchemy 2. The database comes from the `DATABASE_URL` environment variable; without it LoanLens uses the local SQLite file `sqlite:///data/loanlens.sqlite`. PostgreSQL works through psycopg (`postgresql://...`). The schema is managed by Alembic (`src/loanlens/db/migrations/`); the app applies migrations itself, or run `alembic upgrade head` from the project root. A database that cannot be reached gives a plain message, never a stack trace. Because every decision must be recorded in the audit trail, no result is shown until it can be recorded; a batch summary that fails to save does not block the results. `.env.example` lists the environment variable names (no values).
 
 ## Accounts and roles
 
@@ -182,12 +187,12 @@ Home, Sign in and About are public. Anyone else who opens a page they cannot use
 
 - **Passwords** are hashed with argon2id (argon2-cffi defaults). They must be 10 to 128 characters, not on the built-in list of common passwords and not the same as the email address. Emails are stored lower-case and checked for a valid format.
 - **Signing in:** every failure shows the same message, "Incorrect email or password". After 5 wrong passwords in a row the account is locked for 15 minutes; deactivated accounts cannot sign in.
-- **Sessions** are signed tokens (JWT, HS256) holding the account number, role and expiry (60 minutes). The token lives only in the Streamlit session and is checked again on every page load, so an expired session, a deactivated account or a changed role sends the user back to Sign in.
+- **Sessions** are signed tokens (JWT, HS256) holding the account number, role and expiry (60 minutes). The token lives only in the Streamlit session and is checked again on every page load, so an expired session, a deactivated account or a changed role sends the user back to Sign in. Tokens also carry the account's token version: changing your password, a manager setting a temporary password, and deactivating or reactivating the account all raise it, so every older token (including a copied one) stops working, while the session that changed the password receives a fresh token.
 - **No public manager sign-up and no default credentials.** The first manager comes from the command line or from `LOANLENS_BOOTSTRAP_MANAGER_EMAIL` and `LOANLENS_BOOTSTRAP_MANAGER_PASSWORD`, used only while no manager exists. A bootstrapped manager must change the password at first sign-in, and the app logs a warning to remove the two settings.
 - **Manager actions:** create managers (who must change their temporary password), deactivate or reactivate any other account, and set a temporary password, which is how a forgotten password is reset. A manager cannot change their own status, and the last active manager cannot delete their own account.
 - **Own account:** anyone can change their password (the current one is required). Deleting an account removes the user row, so records kept under its random audit reference can no longer be linked to a person, and earlier sign-in events lose their link to it.
 
-**Personal data stored per account:** email address, password hash, role, status flags, the time the account was created and the last sign-in, the failed-attempt counter and lock time, and a random audit reference. The `auth_events` table records sign-ins and account changes with a short reason code (for example `wrong_password`); it never holds a password, a token or an email address. The eligibility form's inputs are still not stored.
+**Personal data stored per account:** email address, password hash, role, status flags, the time the account was created and the last sign-in, the failed-attempt counter and lock time, and a random audit reference. The `auth_events` table records sign-ins and account changes with a short reason code (for example `wrong_password`); it never holds a password, a token or an email address. Decisions are recorded in the audit trail described below.
 
 **Settings** (environment variables; names in `.env.example`):
 
@@ -199,12 +204,82 @@ Home, Sign in and About are public. Anyone else who opens a page they cannot use
 
 **Honest limitations:** email addresses are not verified; there is no self-service password reset (a manager sets a temporary password); the Streamlit session ends when the page is refreshed or closed, so the user signs in again.
 
+## Audit trail and history
+
+Every decision is written to the **append-only** table `decision_audit` before it is shown: decisions from the Check My Eligibility page (channel `ui`), from the REST API (`api`) and from every row of a Bulk Check upload (`batch`, inserted in chunks of 1,000). If the record cannot be written, the result is not shown.
+
+Each record holds: a random id, the time (UTC), `user_ref` (the signed-in account's random audit reference, never an email or name), the role, the channel, a batch id for batches, the request id (the API's `X-Request-ID`), the loan type, policy version and hash, model version, **only the eight model input fields**, the status, probability, borderline flag and reason codes.
+
+- **Append-only:** there is no code that updates or deletes a record, and database triggers reject every `UPDATE` and `DELETE` on the table (on SQLite and PostgreSQL; PostgreSQL also rejects `TRUNCATE`). Tests prove the triggers work on SQLite; see [Development](#development) for PostgreSQL.
+- **My History** shows applicants their own records only (date, loan type, status, likelihood, reasons), with a CSV download.
+- **Audit** (managers) filters by date range, status, loan type, channel, model version and policy version, shows counts and exports CSV.
+- **Account deletion:** the user row is removed, but the audit records stay. They carry only the random reference, so they can no longer be linked to the person, and nobody can open that history again.
+
+## REST API
+
+A FastAPI service under `/v1` uses the **same protected service layer and Pydantic schemas** as the Streamlit app, so a decision is identical whichever way it is requested (tests compare every built-in example under every loan type). The Streamlit pages call the service layer directly, in the same process, rather than over HTTP: this keeps the app simple to run and host, while the API serves other systems.
+
+```bash
+uvicorn loanlens.api.app:app --port 8000      # or: python -m loanlens.api (127.0.0.1:8000)
+```
+
+Interactive OpenAPI docs: http://127.0.0.1:8000/docs .
+
+| Endpoint | Who | What |
+|---|---|---|
+| `POST /v1/auth/register` | public | Create an applicant account; returns a bearer token |
+| `POST /v1/auth/login` | public | Sign in; returns a bearer token (60 minutes) |
+| `GET /v1/auth/me` | signed in | The account (email, role, must-change-password flag) |
+| `POST /v1/score` | signed in | Score one applicant (the 8 fields plus optional `product`) |
+| `POST /v1/score/batch` | manager | Score a JSON list of up to `LOANLENS_API_MAX_BATCH` applicants (default 1,000) |
+| `GET /v1/policies`, `GET /v1/policies/{profile}` | public | Loan types and their (placeholder) settings |
+| `GET /v1/model` | public | The active model version and its metrics |
+| `GET /v1/audit` | manager | The audit trail, paginated (`page`, `page_size` up to 500) with the same filters as the Audit page |
+| `GET /health`, `GET /ready` | public | Liveness; readiness (database reachable and model loaded, else 503) |
+
+Examples (bash; the email and password are examples):
+
+```bash
+API=http://127.0.0.1:8000
+
+# Register an applicant (returns {"access_token": ..., "token_type": "bearer", ...})
+curl -s -X POST $API/v1/auth/register -H "Content-Type: application/json" \
+     -d '{"email": "priya@example.com", "password": "plum river lamp 42"}'
+
+# Sign in and keep the token
+TOKEN=$(curl -s -X POST $API/v1/auth/login -H "Content-Type: application/json" \
+     -d '{"email": "priya@example.com", "password": "plum river lamp 42"}' \
+     | python -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+# Score one applicant
+curl -s -X POST $API/v1/score -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+     -d '{"cibil_score": 480, "income_annum": 5000000, "loan_amount": 12000000, "loan_term": 10,
+          "residential_assets_value": 6000000, "commercial_assets_value": 2000000,
+          "luxury_assets_value": 4000000, "bank_asset_value": 1500000, "product": "personal"}'
+# -> "status": "Rejected", "likelihood": "<1% - Very unlikely", reasons such as
+#    "CIBIL score 480 is below the minimum 550.", what_would_change, warnings, profile,
+#    policy_version, model_version and request_id (also in the X-Request-ID header)
+
+# Read the audit trail (manager token; an applicant gets 403 "forbidden")
+curl -s "$API/v1/audit?page=1&page_size=50&status=Rejected&channel=api" \
+     -H "Authorization: Bearer $MANAGER_TOKEN"
+```
+
+The responses above were produced by a local run on 2026-11-06.
+
+- **Errors** always look like `{"error": {"code": ..., "message": ..., "request_id": ...}}`, with `details` for validation errors (field names and messages, never the submitted values). 401 for a missing, expired or invalidated token, 403 for a role that is not allowed or an account that must change its password first, 422 for invalid input, 429 when rate-limited, 503 when the database is unavailable.
+- **Request IDs:** a safe incoming `X-Request-ID` is kept, otherwise one is generated; it is returned in the header and stored in the audit record.
+- **Logs** are one JSON object per request: time, request id, method, route, status, duration and role. No email, password, token, input value or client address is logged, and uvicorn's own access log is switched off by `python -m loanlens.api`.
+- **Rate limits** on `/v1/auth/login` and `/v1/auth/register`: at most 10 attempts per client address and 5 per account (email) in any 60 seconds (`LOANLENS_API_AUTH_LIMIT_PER_CLIENT`, `LOANLENS_API_AUTH_LIMIT_PER_ACCOUNT`, `LOANLENS_API_AUTH_WINDOW_SECONDS`), answered with 429 and `Retry-After`. One client cannot try many accounts or many passwords quickly, and one account cannot be attacked quickly from many addresses. The counters are **in memory**: they reset when the server restarts and are not shared between server processes. The client address is the direct connection's address; behind a proxy every request would share the proxy's address.
+- **CORS** is off unless `LOANLENS_API_CORS_ORIGINS` lists allowed origins (comma-separated).
+
 ## Security notes
 
 - There are **no default or demo passwords**. Accounts use argon2id password hashes, signed and expiring session tokens, a lockout after repeated failures and generic sign-in errors (see [Accounts and roles](#accounts-and-roles)).
 - Passwords, tokens and email addresses are never logged or written to the sign-in event table. Inputs are validated with Pydantic.
 - Set `LOANLENS_JWT_SECRET` before sharing the app; with `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1` the app will not start without it.
-- The eligibility form's inputs are not stored. Bulk Check saves only anonymised batch summaries (counts, approval rate, top reasons) in the configured database (a local SQLite file by default); applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policies/personal.yaml` (it is off). Database access uses the SQLAlchemy ORM or parameterised statements only.
+- Decisions are stored in the append-only audit trail with the model input fields only and a random account reference (no email or name). Every function that scores, reads analytics or touches the audit trail checks the signed-in user's role itself (`src/loanlens/services.py`). Bulk Check also saves anonymised batch summaries (counts, approval rate, top reasons) in the configured database (a local SQLite file by default); applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policies/personal.yaml` (it is off). Database access uses the SQLAlchemy ORM or parameterised statements only.
+- The API rate-limits sign-in and registration per client address and per account, keeps CORS off by default and writes JSON logs without personal data.
 - The database URL comes from the environment (`DATABASE_URL`) and is never written to the repository or shown in error messages.
 - Datasets, archived model files, the SQLite database, `.env` and `.streamlit/secrets.toml` are gitignored. No password or secret exists in the code or the repository; the tests generate their own at run time.
 
@@ -234,7 +309,10 @@ src/loanlens/
   explain.py              SHAP reasons, positive factors, what-would-change search
   decision.py             orchestrates everything (single source of truth)
   batch.py                CSV in, validation, scoring, results out
-  storage.py              anonymised batch summaries only (via the db layer)
+  storage.py              anonymised batch summaries (via the db layer)
+  services.py             the protected service layer the pages and the API call (role checks)
+  audit.py                append-only decision audit trail (records, filters, counts)
+  api/                    FastAPI app (/v1), schemas, settings, rate limiter
   db/                     SQLAlchemy engine and sessions, tables, Alembic migrations
   presentation.py         display text and views used by the pages
   formatting.py           Indian digit grouping, score display
@@ -243,7 +321,8 @@ src/loanlens/
   auth/                   accounts, argon2id passwords, JWT sessions, roles, CLI (create-manager)
   config.py, examples.py  policy profiles, content hash; six hypothetical example applicants
 app/                      Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check,
-                          Analytics, About, Users, Account (layout only; logic is in src/loanlens)
+                          Analytics, About, Users, Account, My History, Audit
+                          (layout only; logic is in src/loanlens)
 reports/                  model card, benchmark, decisions log, progress, examples, screenshots
 scripts/                  example_decisions.py, make_batch_fixture.py
 tests/                    pytest suite (unit tests and headless page tests); fixtures/ is synthetic
@@ -256,15 +335,16 @@ python -m loanlens.model               # train and register a new model version
 python -m loanlens.model --list        # registered versions
 alembic upgrade head                   # apply database migrations (DATABASE_URL or local SQLite)
 python -m loanlens.auth create-manager --email <email>   # create a manager (password prompt)
+uvicorn loanlens.api.app:app           # serve the REST API (docs at /docs)
 python -m loanlens.rules               # write reports/rules_vs_labels.md
 python scripts/example_decisions.py    # write reports/example_decisions.md
 python scripts/make_batch_fixture.py   # regenerate the synthetic tests/fixtures/batch_1000.csv
 ruff check .
-pytest                                 # 499 passed, 3 skipped (PostgreSQL)
+pytest                                 # 655 passed, 8 skipped (PostgreSQL)
 pytest --cov=loanlens                  # coverage of src/loanlens (99%)
 ```
 
-Tests that need the dataset or model skip themselves if `data/raw/` is empty. The PostgreSQL tests run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped.
+Tests that need the dataset or model skip themselves if `data/raw/` is empty. The PostgreSQL tests (database layer and audit triggers) run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped. **They have not been run yet**, so PostgreSQL support is not verified.
 
 ## Limitations
 
@@ -275,6 +355,7 @@ Tests that need the dataset or model skip themselves if `data/raw/` is empty. Th
 - **Assumed interest rate.** The data has no rate or existing EMIs, so EMI uses an assumed 10% a year and the EMI-to-income rule is advisory only.
 - **Narrow training ranges.** Loan-to-income only spans 1.5 to 4.0 in the data; inputs outside the training ranges get a warning.
 - **One model for every loan type.** Loan types change the rules and assumptions only; the model has no loan-type information.
+- **In-memory rate limits.** The API's sign-in limits reset when it restarts and are not shared between processes.
 - **Simple accounts.** Email addresses are not verified, there is no self-service password reset (a manager sets a temporary password), and the Streamlit session ends when the page is refreshed.
 
 ## What a lender would need to provide to take this further
@@ -289,7 +370,7 @@ Tests that need the dataset or model skip themselves if `data/raw/` is empty. Th
 
 - **Real repayment data**, so that default risk could be studied.
 - **Real policy thresholds** (and enforce settings) from a lender, replacing every placeholder.
-- **A decision audit trail and a REST API**, and email verification with self-service password reset.
+- Email verification and self-service password reset; shared rate limiting if the API runs as several processes.
 - **A default-risk model**, as a separate model with its own target, once repayment outcomes exist.
 - **Power BI dashboard** fed by exported, dashboard-ready CSVs.
 - Collecting the fields the benchmark shows are missing: previous defaults, employment experience, home ownership, loan purpose, offered interest rate and existing EMIs (`reports/benchmark.md`).

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from ui_common import end_session, escape_md, footer, require_user, setup_page
+from ui_common import end_session, escape_md, footer, require_user, setup_page, start_session
 
 from loanlens import auth
 from loanlens.auth import passwords
@@ -44,21 +44,24 @@ if change:
         st.error("The two new passwords do not match.")
     else:
         try:
-            auth.change_password(principal, current, new)
+            # Other open sessions end; this one continues with a fresh token.
+            fresh = auth.change_password(principal, current, new)
         except auth.InputError as exc:
             for problem in exc.problems:
                 st.error(problem)
         except (auth.AccountError, DatabaseError) as exc:
             st.error(str(exc))
         else:
+            start_session(fresh)
             st.session_state["account_message"] = "changed"
             st.rerun()
 
 st.subheader("Delete account")
 st.markdown(
-    "Deleting your account removes your email address and password from LoanLens. Any "
-    "records that were kept under your account's anonymous reference can then no longer be "
-    "linked to you. This cannot be undone."
+    "Deleting your account removes your email address and password from LoanLens. The "
+    "records of your past checks stay in the decision audit trail, but they carry only a "
+    "random reference, so they can then no longer be linked to you, and your history can "
+    "no longer be opened. This cannot be undone."
 )
 with st.form("delete_account_form", clear_on_submit=True):
     confirm = st.checkbox("I understand that this cannot be undone.", key="delete_confirm")

@@ -25,9 +25,65 @@ DISCLAIMER = (
     "real-world accuracy is claimed."
 )
 PRIVACY_NOTE = (
-    "Nothing you enter on this page is stored or logged. The result is calculated in memory "
-    "and discarded when you leave the page."
+    "Each check you make while signed in is saved to your account history (My History) and "
+    "to the decision audit trail: the details you entered, the result and the policy and "
+    "model versions used. Your email address and name are never part of these records. If "
+    "you delete your account, the records remain but can no longer be linked to you."
 )
+AUDIT_NOTE = (
+    "Every decision made in the app, through the API or in a bulk check is recorded here. "
+    "Records cannot be changed or deleted (the database rejects it). They hold the model "
+    "inputs, the result and the versions used, plus a random account reference instead of "
+    "an email address or name."
+)
+
+HISTORY_COLUMNS = (
+    "Date (UTC)", "Loan type", "Status", "Likelihood", "Borderline", "Reasons",
+    "Policy version", "Model version",
+)  # fmt: skip
+
+
+def reason_labels(codes) -> str:
+    """Short plain-English labels for stored reason codes, joined with '; '."""
+    return "; ".join(explain.REASON_LABELS.get(str(c), str(c)) for c in codes or [])
+
+
+def history_frame(items: list[dict], bands) -> pd.DataFrame:
+    """The applicant's own decisions as a table for the My History page and its CSV."""
+    rows = [
+        {
+            "Date (UTC)": item["created_at"].strftime("%Y-%m-%d %H:%M"),
+            "Loan type": profile_label(item["profile"]),
+            "Status": item["status"],
+            "Likelihood": likelihood_text(item["probability"], bands),
+            "Borderline": "Yes" if item["borderline"] else "No",
+            "Reasons": reason_labels(item["reason_codes"]),
+            "Policy version": item["policy_version"],
+            "Model version": item["model_version"],
+        }
+        for item in items
+    ]
+    return pd.DataFrame(rows, columns=list(HISTORY_COLUMNS))
+
+
+def audit_frame(items: list[dict]) -> pd.DataFrame:
+    """Audit records flattened for display and CSV export (inputs become columns)."""
+    from loanlens.decision import INPUT_COLUMNS
+
+    rows = []
+    for item in items:
+        row = {k: v for k, v in item.items() if k not in {"inputs", "reason_codes"}}
+        row["created_at"] = item["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        row["reason_codes"] = ";".join(item["reason_codes"] or [])
+        row.update({name: item["inputs"].get(name) for name in INPUT_COLUMNS})
+        rows.append(row)
+    columns = [
+        "created_at", "status", "probability", "borderline", "reason_codes", "profile",
+        "policy_version", "policy_hash", "model_version", "channel", "actor_role",
+        "user_ref", "batch_id", "request_id", "id", *INPUT_COLUMNS,
+    ]  # fmt: skip
+    return pd.DataFrame(rows, columns=columns)
+
 
 BENCHMARK_SUMMARY = (
     "LoanLens was also tested on a second, larger public synthetic dataset "

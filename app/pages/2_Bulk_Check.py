@@ -15,8 +15,9 @@ from ui_common import (
     setup_page,
 )
 
-from loanlens import auth, batch, storage
+from loanlens import auth, batch, services
 from loanlens.config import DEFAULT_PROFILE, list_profiles
+from loanlens.db.engine import DatabaseError
 from loanlens.formatting import SCORE_LABEL
 from loanlens.presentation import PROTOTYPE_NOTICE, thresholds_note
 from loanlens.theme import STYLED_ROWS_LIMIT, status_display_frame, style_status_column
@@ -31,8 +32,10 @@ max_rows = policy.batch.max_rows
 st.warning(f"**{PROTOTYPE_NOTICE}.** Results support pre-screening only.")
 st.caption(thresholds_note(policy))
 st.caption(
-    "Only an anonymised summary of each batch (counts, approval rate, top rejection reasons) "
-    "is saved. Names, IDs and applicant details are not stored."
+    "Each scored row is recorded in the decision audit trail: its model input fields, the "
+    "result and the versions used, under your account's random reference. Names and your "
+    "applicant IDs are not stored there. An anonymised summary of the batch (counts, "
+    "approval rate, top rejection reasons) is also saved for Analytics."
     if not policy.storage.store_applicant_ids
     else "Storage of applicant IDs is ENABLED in config/policies/personal.yaml: per-row IDs "
     "and statuses are saved with the batch summary."
@@ -85,13 +88,28 @@ if st.session_state.get("batch_key") != key:
 
     progress = st.progress(0.0, text="Scoring applicants...")
     try:
-        results = batch.score(
+        run = services.score_batch_upload(
+            principal,
             parsed,
             policy,
-            artifact,
+            artifact=artifact,
             include_positive=include_positive,
             progress=lambda f: progress.progress(f, text=f"Scoring applicants... {f:.0%}"),
         )
+        results = run.results
+    except auth.AuthorisationError as exc:
+        progress.empty()
+        st.error(f"{exc} Open Sign in in the sidebar.")
+        footer()
+        st.stop()
+    except DatabaseError:
+        progress.empty()
+        st.error(
+            "The results could not be recorded in the decision audit trail, so they are not "
+            "shown. Ask the administrator to check the database, then upload the file again."
+        )
+        footer()
+        st.stop()
     except Exception:  # noqa: BLE001
         progress.empty()
         friendly_failure("scoring the file")
@@ -100,9 +118,11 @@ if st.session_state.get("batch_key") != key:
     progress.empty()
     summary = batch.summarise(results, parsed)
     try:
-        storage.save_summary(summary, str(artifact.get("version", "unknown")), results, policy)
+        services.save_batch_summary(
+            principal, summary, str(artifact.get("version", "unknown")), results, policy
+        )
         saved, save_note = True, ""
-    except storage.DatabaseError as exc:  # plain message, never a stack trace
+    except DatabaseError as exc:  # plain message, never a stack trace
         saved, save_note = False, str(exc)
     except Exception:  # noqa: BLE001 - storage problems must not block the results
         saved, save_note = False, "The anonymised summary could not be saved this time."

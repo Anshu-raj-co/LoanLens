@@ -1,12 +1,13 @@
-"""Check my eligibility (any signed-in user). Nothing entered here is stored or logged."""
+"""Check my eligibility (any signed-in user). Each check is saved to the account history."""
 
 from __future__ import annotations
 
 import streamlit as st
 from ui_common import footer, friendly_failure, get_model, get_policy, require_user, setup_page
 
+from loanlens import auth, services
 from loanlens.config import DEFAULT_PROFILE, list_profiles, load_profile
-from loanlens.decision import decide
+from loanlens.db.engine import DatabaseError
 from loanlens.presentation import (
     FORM_FIELDS,
     PRIVACY_NOTE,
@@ -22,7 +23,7 @@ from loanlens.schema import ValidationFailure
 from loanlens.theme import pill_html, policy_checks_html, status_label
 
 setup_page("Check My Eligibility")
-require_user()
+principal = require_user()
 get_policy()  # stops with a friendly message if the policy files cannot be read
 artifact = get_model()
 
@@ -64,7 +65,19 @@ checked = st.button("Check eligibility", type="primary", use_container_width=Tru
 # ---- Result --------------------------------------------------------------------------------
 if checked:
     try:
-        result = decide(values, policy=policy, artifact=artifact)
+        scored = services.score_applicant(
+            principal, values, product=loan_type, channel=services.UI, artifact=artifact
+        )
+        result = scored if isinstance(scored, ValidationFailure) else scored.result
+    except auth.AuthorisationError as exc:
+        st.error(f"{exc} Open Sign in in the sidebar.")
+        result = None
+    except DatabaseError:
+        st.error(
+            "Your check could not be saved to your history, so no result is shown. Please try "
+            "again later or contact the LoanLens administrator."
+        )
+        result = None
     except Exception:  # noqa: BLE001 - never show a stack trace
         friendly_failure("checking your eligibility")
         result = None

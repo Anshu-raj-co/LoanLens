@@ -13,6 +13,7 @@ from loanlens.auth.service import (
     ROLES,
     AccountError,
     AuthError,
+    AuthorisationError,
     InputError,
     InvalidSession,
     LoginFailed,
@@ -35,6 +36,7 @@ from loanlens.auth.service import (
     set_temporary_password,
     sign_in,
     sign_out,
+    verify_principal,
 )
 from loanlens.auth.settings import ConfigurationError, load_settings, signing_key
 
@@ -46,6 +48,7 @@ __all__ = [
     "ROLE_LABELS",
     "AccountError",
     "AuthError",
+    "AuthorisationError",
     "ConfigurationError",
     "InputError",
     "InvalidSession",
@@ -71,4 +74,5 @@ __all__ = [
     "sign_in",
     "sign_out",
     "signing_key",
+    "verify_principal",
 ]

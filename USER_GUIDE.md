@@ -12,8 +12,8 @@ Home, Sign in and About are open to everyone. Every other page needs you to be s
 
 | You are | You can use |
 |---|---|
-| An **applicant** | Check My Eligibility and Account |
-| A **bank manager** | Check My Eligibility, Bulk Check, Analytics, Users and Account |
+| An **applicant** | Check My Eligibility, My History and Account |
+| A **bank manager** | Check My Eligibility, My History, Bulk Check, Analytics, Audit, Users and Account |
 
 ### Create an account (applicants)
 
@@ -35,12 +35,14 @@ There is no email reset. Ask a bank manager to set a **temporary password** for 
 
 ### Account page
 
-- **Change password:** enter your current password and the new one twice.
+- **Change password:** enter your current password and the new one twice. You stay signed in here, and you are signed out everywhere else (other tabs, devices or programs using your old sign-in).
 - **Delete account:** tick the confirmation box, enter your password and press **Delete my account**. Your email address and password are removed and you are signed out. This cannot be undone.
 
 ### What is stored about you
 
-Your email address, a one-way scrambled form of your password (never the password itself), your role, the time the account was created and your last sign-in, and a counter of failed sign-ins. A log of sign-ins and account changes is kept without your email address or password. Email addresses are not checked to be real. What you type into the eligibility form is not stored.
+Your email address, a one-way scrambled form of your password (never the password itself), your role, the time the account was created and your last sign-in, and a counter of failed sign-ins. A log of sign-ins and account changes is kept without your email address or password. Email addresses are not checked to be real.
+
+Every eligibility check you make while signed in is saved: the details you typed, the result and the versions used, under a random code for your account (not your email or name). You can see these on **My History**; bank managers see them, without your email, on the **Audit** page. If you delete your account, these records stay but can no longer be linked to you.
 
 ---
 
@@ -77,7 +79,7 @@ Under each amount the app repeats what you typed in Indian grouping (for example
 
 Under the result, a small line names the loan type, its policy version and the model version that produced it.
 
-**Your privacy:** nothing you enter on this page is stored or logged. The result is calculated in memory and discarded when you leave.
+**Your privacy:** each check is saved to your account history and the decision audit trail (your inputs, the result and the versions used; never your email address or name). If the check cannot be saved, no result is shown.
 
 ### Reading your result
 
@@ -101,6 +103,10 @@ A result is marked **borderline - manual review recommended** when it is too clo
 
 The word "Borderline" in the likelihood band (35-65%) is only a description of the score; the amber pill is what means *manual review recommended*. All of these numbers are placeholders in the policy profiles in `config/policies/`.
 
+### My History
+
+Open **My History** to see every check you have made while signed in, newest first: the date (UTC), loan type, status, likelihood, whether it was borderline, the main reasons, and the policy and model versions. **Download my history (CSV)** saves the table. Only you can see your history.
+
 ### Common messages
 
 | Message | What to do |
@@ -110,6 +116,7 @@ The word "Borderline" in the likelihood band (35-65%) is only a description of t
 | "Sorry, something went wrong..." | Check the inputs and try again; contact the administrator if it repeats. |
 | "Incorrect email or password" | Check both and try again. After 5 wrong tries the account is locked for 15 minutes; a bank manager can unlock it by setting a temporary password. |
 | "Please sign in to use this page" | Open **Sign in** in the sidebar. |
+| "Your check could not be saved to your history, so no result is shown." | The database is unavailable. Try again later. |
 | "Your session has ended. Please sign in again." | The 60 minutes are up, or the account was changed by a manager. Sign in again. |
 | "This is available to bank managers only." | The page is for bank managers; applicants cannot open it. |
 | "You must choose a new password before you can continue." | Open **Account** and change the temporary password. |
@@ -185,11 +192,17 @@ Tips:
 
 ### What is stored
 
-Only an **anonymised summary** of each batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved, and appears on the **Analytics** page. By default it goes to the local file `data/loanlens.sqlite`; an administrator can point LoanLens at another database (for example PostgreSQL) with the `DATABASE_URL` setting. No names, IDs or applicant values are stored unless an administrator sets `storage.store_applicant_ids: true` in `config/policies/personal.yaml`. If the database cannot be reached, the results still appear and a short note says the summary was not saved.
+Every scored row is recorded in the **decision audit trail**: its eight model input fields, the result, the loan type and the policy and model versions, under your account's random reference. Your `applicant_id` values and any names are not stored there. If the audit records cannot be written, the results are not shown. In addition, an **anonymised summary** of each batch (counts, approval rate, likelihood bands, top rejection reason codes, model version) is saved and appears on the **Analytics** page. By default it goes to the local file `data/loanlens.sqlite`; an administrator can point LoanLens at another database (for example PostgreSQL) with the `DATABASE_URL` setting. No names, IDs or applicant values are stored unless an administrator sets `storage.store_applicant_ids: true` in `config/policies/personal.yaml`. If only the summary cannot be saved, the results still appear and a short note says so.
 
 ### Speed and limits
 
 About 0.7 seconds per 1,000 rows; a 50,000-row file takes roughly 16-32 seconds. Files above 50,000 rows are refused with a message asking you to split them.
+
+### The Audit page
+
+**Audit** shows every decision ever made: from Check My Eligibility (channel `ui`), the REST API (`api`) and Bulk Check (`batch`). Choose a date range (UTC), status, loan type, channel, model version or policy version; the cards show how many decisions match and how many were approved, rejected and borderline. The table shows 100 records per page (use **Page**). **Prepare CSV of all matching records** and then **Download audit CSV** saves up to 100,000 records with their input fields.
+
+Records cannot be changed or deleted, not even by a manager: the database refuses. They never contain an email address or name, only a random account reference.
 
 ### The Users page
 
@@ -198,6 +211,10 @@ Managers see every account: email, role, status (Active, Locked, Deactivated, or
 - **Create a manager:** enter the email and a temporary password twice. Give the password to the person directly; they must change it at first sign-in.
 - **Deactivate or reactivate an account:** a deactivated account cannot sign in, and an open session ends at its next page load. You cannot change your own status.
 - **Set a temporary password:** use this when someone has forgotten their password. It also unlocks a locked account, and they must choose a new password at their next sign-in.
+
+### Using the REST API
+
+Other systems can use the same checks through the REST API (`uvicorn loanlens.api.app:app`, docs at `/docs`). Sign in with `POST /v1/auth/login` and send the token as `Authorization: Bearer <token>`. Managers can score up to 1,000 applicants per request with `POST /v1/score/batch` and read the audit trail with `GET /v1/audit`. Examples are in README.md.
 
 ### Remember
 

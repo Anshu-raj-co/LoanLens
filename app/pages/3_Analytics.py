@@ -6,33 +6,21 @@ import pandas as pd
 import streamlit as st
 from ui_common import footer, get_model, get_policy, require_user, setup_page
 
-from loanlens import auth, charts, cleaning, explain, storage
-from loanlens import model as model_mod
+from loanlens import auth, charts, services
+from loanlens.db.engine import DatabaseError
 
 setup_page("Analytics")
-require_user(auth.MANAGER)
+principal = require_user(auth.MANAGER)
 policy = get_policy()
 artifact = get_model()
 
-
-@st.cache_data(show_spinner="Loading the training data...")
-def load_training_data() -> pd.DataFrame | None:
-    """Cleaned primary dataset (synthetic), or None if it has not been built."""
-    if not cleaning.PROCESSED_PATH.exists():
-        return None
-    return pd.read_csv(cleaning.PROCESSED_PATH)
-
-
-@st.cache_data(show_spinner="Working out what drives the model...")
-def load_importance(model_version: str, trained_at: str) -> pd.Series | None:
-    """Mean |SHAP| share per feature on the training data (cached per model version)."""
-    df = load_training_data()
-    if df is None:
-        return None
-    return explain.feature_importance(artifact, model_mod.build_frame(df))
-
-
-df = load_training_data()
+try:
+    with st.spinner("Loading the training data..."):
+        df = services.training_data(principal)
+except auth.AuthorisationError as exc:
+    st.error(f"{exc} Open Sign in in the sidebar.")
+    footer()
+    st.stop()
 st.caption(
     "Charts 1 to 3 describe approval decisions in the **public synthetic training data**. "
     "They are not results from any real lender and say nothing about repayment or default."
@@ -75,7 +63,8 @@ with tab_data:
             st.caption("Loan size on its own makes little difference in this data.")
 
 with tab_model:
-    importance = load_importance(str(artifact.get("version")), str(artifact.get("trained_at")))
+    with st.spinner("Working out what drives the model..."):
+        importance = services.feature_importance(principal, artifact)
     if importance is None:
         st.error("Feature importance needs the cleaned training data (see the first tab).")
     else:
@@ -97,10 +86,9 @@ with tab_model:
 
 with tab_batch:
     try:
-        url = storage.resolve_url(policy=policy)
-        latest = storage.latest_summary(url=url)
-        history = storage.list_summaries(10, url=url)
-    except storage.DatabaseError as exc:  # plain message, never a stack trace
+        latest = services.latest_batch_summary(principal, policy)
+        history = services.recent_batch_summaries(principal, 10, policy)
+    except DatabaseError as exc:  # plain message, never a stack trace
         latest, history = None, pd.DataFrame()
         st.error(f"The batch history could not be read. {exc}")
     except Exception:  # noqa: BLE001 - never show a stack trace

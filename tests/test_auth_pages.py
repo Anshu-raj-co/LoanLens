@@ -255,8 +255,14 @@ def test_forced_password_change(app_path, artifact) -> None:
     _click(account, "Change password")
     assert not account.exception
     assert any("password has been changed" in s.value for s in account.success)
-    at.run()
-    assert at.number_input  # the check page opens now
+    fresh = auth.principal_from_token(account.session_state["auth_token"])
+    assert not fresh.must_change_password  # the session that changed it stays signed in
+    at.run()  # the other open session (old token) is signed out
+    assert not at.number_input
+    assert any("session has ended" in w.value for w in at.warning)
+    again = open_page(CHECK, role=None)
+    again.session_state["auth_token"] = account.session_state["auth_token"]
+    assert again.run().number_input  # the check page opens with the fresh session
 
 
 def test_change_password_errors(app_path) -> None:

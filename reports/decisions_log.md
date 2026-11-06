@@ -614,6 +614,90 @@ Each entry records what was found, what was chosen, and why.
   - The server log had no errors and contained none of the passwords.
 - **Packaging:** `pyproject.toml` now lists `auth/common_passwords.txt` and the Alembic template as package data, so a non-editable install has them.
 
+## Milestone 3: audit trail and REST API
+
+### State on resume (before Milestone 3)
+- **Found:** a clean tree at `5f60968` (Milestone 2), three commits ahead of `origin/main` and not pushed. 499 tests passed with 3 PostgreSQL tests skipped; ruff was clean.
+- **PostgreSQL:** `LOANLENS_TEST_POSTGRES_URL` is not set in this session or in the user or machine environment. Every PostgreSQL test, including the new audit-trigger tests, was skipped. PostgreSQL support is not verified.
+- **Example decisions:** compared with the saved baseline at the end; byte-identical.
+
+### D-084 Session invalidation (review decision 2)
+- **Mechanism:** a `token_version` integer on `users` (Alembic `0003_audit`, a plain `ADD COLUMN ... DEFAULT 0` with no table copy, so foreign keys and existing rows are untouched).
+  - Tokens carry it as the required `ver` claim; a missing, non-integer or older value is rejected on every validation.
+  - The integer was chosen over a `password_changed_at` timestamp because it does not depend on clock resolution.
+- **What raises it:** changing your own password, a manager setting a temporary password, and deactivating or reactivating an account. Reactivation also invalidates old tokens, so a session from before a deactivation does not come back.
+- **Fresh session:** `change_password` now returns a fresh `SignedIn`. The Account page stores it, so the session that changed the password stays signed in while every other session (and any copied token) stops working.
+- **Tests:** a stolen old token, the three manager actions and the `ver` claim; the Streamlit flow checks that the other session is signed out and the changing one continues.
+
+### D-085 Protected service layer (review decision 1)
+- **The layer:** `src/loanlens/services.py` is the only layer the pages and the API call for scoring, batches, analytics, batch summaries and the audit trail. Every function first calls `auth.verify_principal`, which raises `AuthorisationError` with one of two subclasses:
+  - `InvalidSession`: no principal, a stale one, or a deactivated or deleted account;
+  - `PermissionDenied`: a role that is not allowed.
+- **Hand-built principals:** a principal now carries a **seal**, an HMAC-SHA256 over its user id, role, audit reference and token version, keyed with the signing key and set only when the auth module issues it. A hand-built principal is refused even if every field matches a real account. The seal is excluded from `repr` and equality.
+- **Roles:** applicants may score their own applications and read only their own history (`my_history` filters by the verified `audit_ref`). Everything else (batches, analytics data, batch summaries, the full audit trail, filter options) is for managers.
+- **Pages:** Check My Eligibility, Bulk Check and Analytics no longer call `decide`, `batch.score`, `storage`, `explain.feature_importance` or the training-data file directly. A test scans every page's source for these names.
+  - Pure helpers that touch no data and make no decision stay in use: `batch.parse_upload`, `summarise`, `template_csv` and the presentation helpers.
+  - About stays public and reads only the policy files and the model registry.
+- **Tests:** every protected function is tested with no principal, a hand-built applicant and manager principal, an applicant and a manager (`tests/test_services.py`).
+
+### D-086 Audit trail
+- **Table:** `decision_audit` (Alembic `0003_audit`) with the requested columns, a check constraint on `channel`, and indexes on `created_at`, `user_ref` and `batch_id`.
+  - `inputs` is JSON holding only the eight model input fields; anything else passed in is dropped.
+  - `reason_codes` is a JSON list.
+  - `user_ref` is the account's random `audit_ref`; there is no foreign key, so deleting the account leaves the record unlinkable.
+- **Append-only:**
+  - `audit.py` and `services.py` contain no update or delete call (an AST test checks this).
+  - SQLite: `BEFORE UPDATE` and `BEFORE DELETE` triggers with `RAISE(ABORT, ...)`.
+  - PostgreSQL: a plpgsql function fired `BEFORE UPDATE OR DELETE FOR EACH ROW`, plus `BEFORE TRUNCATE`.
+  - Tests prove raw SQL and ORM updates and deletes are rejected on SQLite. The same tests are parametrised for PostgreSQL and skipped here.
+- **Fail closed:** a decision is returned only after its audit record is written. If the database is down, the customer page shows "could not be saved to your history, so no result is shown", Bulk Check shows no results, and the API returns 503. An unaudited decision would defeat the purpose of the trail.
+- **Batches:**
+  - A Bulk Check upload gets one `batch_id` and one request id.
+  - Rows are built from the parsed inputs and the batch results, and inserted in chunks of 1,000, one transaction per chunk.
+  - If a later chunk fails, the earlier chunks stay, because they cannot be deleted. The page then shows no results, so the upload can be repeated; the repeat gets a new `batch_id`.
+- **API batch:** its records use channel `api` with a `batch_id`. The channel says where the request came from; the batch id groups the rows.
+- **Request ids:** UI decisions get a generated id, since there is no HTTP request.
+- **Notices updated:** the customer form notice now says checks are saved to the account history and the audit trail without email or name, and remain unlinkable after account deletion. The Bulk Check notice now says every scored row's inputs and result are recorded; the old "only an anonymised summary is saved" was no longer true. The Account page deletion text and all docs say the same.
+
+### D-087 My History and Audit pages
+- **My History** (`7_My_History.py`): for any signed-in user, so managers see their own checks too. It shows date (UTC), loan type, status, likelihood (from the stored probability, never 0% or 100%), borderline, reasons as short labels from the stored codes, and the policy and model versions, with a CSV download.
+- **Audit** (`8_Audit.py`, managers):
+  - Filters: date range (default the last 30 days, UTC), status, loan type, channel, model version and policy version (choices come from the values present).
+  - Shows counts for the whole filter, 100 records per page, and a CSV export of up to 100,000 matching records with the inputs as columns.
+- **Links:** Home and Sign in link to both pages.
+
+### D-088 REST API
+- **Stack:** FastAPI 0.115.6 and uvicorn 0.32.1 (allowed list); httpx 0.28.1 was already installed and is pinned for the test client. python-multipart is not needed, because all bodies are JSON.
+- **Run:** `python -m loanlens.api` binds to 127.0.0.1:8000 by default (`LOANLENS_API_HOST`, `LOANLENS_API_PORT`) with uvicorn's access log off, because its lines contain client addresses. `uvicorn loanlens.api.app:app` also works.
+- **Schemas:** `ScoreRequest` extends `ApplicantInput` with an optional `product`; `ScoreResponse` extends `DecisionResult` with `likelihood_band`, `likelihood`, `request_id` and `audit_id`. This gives every requested field plus `policy_hash`, rule results and positive factors.
+- **Identical results:** `/v1/score` calls `services.score_applicant`, which runs the same `decide_many` call as `decide()`. The tests require exact equality with `decide()` for all six examples under all three profiles.
+  - `/v1/score/batch` scores each loan type's rows together.
+  - Its probabilities match single scoring within 1e-6 (the existing batch-versus-single tolerance), and statuses and reason codes match exactly.
+- **Logins and password changes:** login uses JSON (email, password) rather than the OAuth2 form flow, which would need python-multipart; the docs page offers a Bearer field. An account that must change its password gets 403 `password_change_required` everywhere except `/v1/auth/me`, matching the UI. There is no API endpoint to change a password (not requested); that is done on the Account page.
+- **Public endpoints:** policies, model, health and ready, because the About page shows the same information publicly.
+- **Errors:** one shape with stable codes. Validation details give field names and messages without the submitted values. Unhandled errors become a 500 with no details.
+- **Logs:** a JSON formatter on the `loanlens.api` logger (not propagated, so lines are not duplicated), one line per request, with the route template rather than the raw path so no query values appear. Tests check that emails, passwords, tokens, input values and the client address never appear.
+- **Startup:** refuses to start in production or hosted mode without `LOANLENS_JWT_SECRET`, validates the auth settings and runs the one-time manager bootstrap.
+- **Live check on 2026-11-06:** the API was served with uvicorn on this machine against a throwaway database.
+  - Health and ready answered, and an applicant registered, signed in and scored. The response matched the documented example.
+  - The applicant got 403 on `/v1/audit`; a manager read the record with the same request id; the bootstrapped manager got 403 `password_change_required`.
+  - The server log contained no email or password.
+
+### D-089 Rate limits (review decision 4)
+- **Scope:** `/v1/auth/login` and `/v1/auth/register`, each attempt counted per client address (default 10 per 60 s) and per account (default 5 per 60 s), using a SHA-256 of the lower-cased email so raw emails are not kept in memory.
+  - Over either limit the answer is 429 with `Retry-After`.
+  - The client limit stops one address from trying many accounts or passwords quickly, and so from locking many accounts out. The account limit slows attacks on one account from many addresses, on top of the 5-failure lockout.
+- **Implementation:** in memory (a sliding window per key; refused attempts are not counted; idle keys are purged). It resets when the server restarts and is not shared between processes; this is documented in README and USER_GUIDE.
+- **Client address:** the direct connection's address. `X-Forwarded-For` is ignored because a client can forge it, so behind a proxy all requests share the proxy's address (documented).
+
+### D-090 Documentation and screenshots for Milestone 3
+- **Docs:**
+  - README: Audit trail and history, and REST API with curl examples, limits and error format.
+  - USER_GUIDE: My History, the Audit page, the updated notices and the API.
+  - PROJECT_EXPLAINED: Part 1 "A record of every decision" and "Connecting other systems" in plain words; Part 2 section 13 on the service layer, audit trail and API.
+  - Also `.env.example`, `requirements.txt` and the CLAUDE.md status.
+- **Screenshots:** two new ones, 13 My History and 14 Audit (983 decisions: 980 batch rows and 3 form checks), and all earlier ones retaken. The run used a throwaway database with generated secrets; the server log had no errors and no passwords.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -629,6 +713,9 @@ Each entry records what was found, what was chosen, and why.
 - **Default demo password (resolved in Milestone 2, D-081):** CLAUDE.md section 14 now says "no secrets or default passwords in the repository", but `src/loanlens/access.py` still falls back to the documented local demo password `loanlens-demo`, and README, USER_GUIDE and the tests describe it. Removing it changes the Bulk Check gate's behaviour and was not part of Milestone 1, so it was left as is. Suggested: drop the fallback (require `LOANLENS_MANAGER_PASSWORD`, stored as an argon2id hash) in a later milestone.
 - Run the PostgreSQL tests (`LOANLENS_TEST_POSTGRES_URL`) against a disposable database, for example a local Docker container once Docker's engine is running, or in CI.
 - When another model version is activated, update the artifact lines in `.gitignore` (or move to a release-asset workflow for artifacts).
-- Revoke open sessions when a password changes, for example with a per-user token version checked in `principal_from_token` (today a token stays valid until it expires unless the account is deactivated).
-- When the shared service layer is built (Milestone 3), make batch scoring and analytics functions take a `Principal` and check the manager role there as well, not only in the pages.
-- Rate-limit sign-up and sign-in per client, and consider a larger breached-password list; sign-up currently reveals whether an email is registered (D-076).
+- (Done in Milestone 3, D-084) Revoke open sessions when a password changes.
+- (Done in Milestone 3, D-085) Batch scoring and analytics functions check the role in the service layer.
+- (Rate limits done for the API in Milestone 3, D-089.) Consider a larger breached-password list; sign-up still reveals whether an email is registered (D-076). The Streamlit sign-in page relies on the account lockout only.
+- Run the PostgreSQL tests, now including the audit triggers, against a disposable database (`LOANLENS_TEST_POSTGRES_URL`).
+- Use a shared store for rate limits if the API is run as several processes or behind a proxy (with a trusted-proxy setting for client addresses).
+- An API endpoint for changing a password, so API-only users created with a temporary password do not need the web app.

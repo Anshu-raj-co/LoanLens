@@ -10,7 +10,7 @@ from loanlens.db.engine import (
     session_scope,
     sqlite_url,
 )
-from loanlens.db.models import AuthEvent, Base, BatchSummary, User, batch_rows
+from loanlens.db.models import AuthEvent, Base, BatchSummary, DecisionAudit, User, batch_rows
 
 __all__ = [
     "DEFAULT_URL",
@@ -19,6 +19,7 @@ __all__ = [
     "Base",
     "BatchSummary",
     "DatabaseError",
+    "DecisionAudit",
     "batch_rows",
     "database_url",
     "ensure_schema",

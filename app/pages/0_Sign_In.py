@@ -24,8 +24,10 @@ principal = current_principal()
 if principal is not None:
     st.success(f"You are signed in as **{escape_md(principal.email)}** ({principal.role_label}).")
     page_link("pages/1_Check_My_Eligibility.py", "Check my eligibility")
+    page_link("pages/7_My_History.py", "My history")
     if principal.is_manager:
         page_link("pages/2_Bulk_Check.py", "Bulk check")
+        page_link("pages/8_Audit.py", "Audit")
         page_link("pages/5_Users.py", "Users")
     page_link("pages/6_Account.py", "Account")
     st.button("Sign out", key="sign_out_main", on_click=end_session)

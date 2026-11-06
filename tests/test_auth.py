@@ -329,10 +329,13 @@ def test_deactivated_or_deleted_account_ends_the_session() -> None:
     with pytest.raises(auth.InvalidSession):
         auth.principal_from_token(target.token)
     auth.set_active(manager.principal, target.principal.user_id, True)
-    assert auth.principal_from_token(target.token)
-    auth.delete_own_account(target.principal, TEST_PASSWORD)
-    with pytest.raises(auth.InvalidSession):
+    with pytest.raises(auth.InvalidSession):  # reactivation does not revive old sessions
         auth.principal_from_token(target.token)
+    fresh = auth.sign_in(target.principal.email, TEST_PASSWORD)
+    assert auth.principal_from_token(fresh.token)
+    auth.delete_own_account(fresh.principal, TEST_PASSWORD)
+    with pytest.raises(auth.InvalidSession):
+        auth.principal_from_token(fresh.token)
 
 
 def test_sign_out_is_recorded() -> None:
@@ -426,8 +429,13 @@ def test_no_principal_means_no_access() -> None:
 def test_forged_principal_is_checked_against_the_database() -> None:
     applicant = new_session().principal
     forged = svc.Principal(applicant.user_id, applicant.email, auth.MANAGER, applicant.audit_ref)
-    with pytest.raises(auth.PermissionDenied):
+    with pytest.raises(auth.AuthorisationError, match="could not be verified"):
         auth.list_users(forged)
+    copied = svc.Principal(
+        applicant.user_id, applicant.email, applicant.role, applicant.audit_ref
+    )  # same fields, but not from a sign-in
+    with pytest.raises(auth.InvalidSession, match="could not be verified"):
+        auth.change_password(copied, TEST_PASSWORD, OTHER_PASSWORD)
     ghost = svc.Principal(9999, "ghost@example.com", auth.MANAGER, str(uuid.uuid4()))
     with pytest.raises(auth.InvalidSession):
         auth.list_users(ghost)
@@ -532,7 +540,7 @@ def test_change_password() -> None:
     with pytest.raises(auth.InputError, match="too common"):
         auth.change_password(signed_in.principal, TEST_PASSWORD, "password123")
     updated = auth.change_password(signed_in.principal, TEST_PASSWORD, OTHER_PASSWORD)
-    assert not updated.must_change_password
+    assert not updated.principal.must_change_password
     with pytest.raises(auth.LoginFailed):
         auth.sign_in(signed_in.principal.email, TEST_PASSWORD)
     assert auth.sign_in(signed_in.principal.email, OTHER_PASSWORD)
@@ -545,11 +553,13 @@ def test_forced_password_change_is_cleared() -> None:
     manager = _manager()
     target = new_session()
     auth.set_temporary_password(manager.principal, target.principal.user_id, OTHER_PASSWORD)
-    principal = auth.principal_from_token(target.token)
-    assert principal.must_change_password  # an open session sees the flag at once
-    updated = auth.change_password(principal, OTHER_PASSWORD, "brand new passphrase 9")
-    assert not updated.must_change_password
-    assert not auth.principal_from_token(target.token).must_change_password
+    with pytest.raises(auth.InvalidSession):  # the temporary password ends open sessions
+        auth.principal_from_token(target.token)
+    temporary = auth.sign_in(target.principal.email, OTHER_PASSWORD)
+    assert temporary.principal.must_change_password
+    updated = auth.change_password(temporary.principal, OTHER_PASSWORD, "brand new passphrase 9")
+    assert not updated.principal.must_change_password
+    assert not auth.principal_from_token(updated.token).must_change_password
 
 
 def test_delete_own_account_unlinks_events() -> None:
@@ -705,7 +715,9 @@ def test_no_plaintext_password_or_token_in_database_events_or_logs(caplog) -> No
         auth.sign_in(applicant.principal.email, "Wrong-" + applicant_password)
     tokens_seen.append(auth.sign_in(applicant.principal.email, applicant_password).token)
     auth.set_temporary_password(manager.principal, applicant.principal.user_id, temporary)
-    auth.change_password(applicant.principal, temporary, changed)
+    temp_session = auth.sign_in(applicant.principal.email, temporary)
+    fresh = auth.change_password(temp_session.principal, temporary, changed)
+    tokens_seen += [temp_session.token, fresh.token]
     auth.bootstrap_from_env(_bootstrap_env("boot@example.com", "Boot-" + manager_password))
     secrets_used = [applicant_password, manager_password, temporary, changed,
                     "Boot-" + manager_password, *tokens_seen]  # fmt: skip
@@ -724,3 +736,57 @@ def test_no_plaintext_password_or_token_in_database_events_or_logs(caplog) -> No
         assert secret not in dump and secret not in events_text and secret not in caplog.text
     assert applicant.principal.email not in events_text  # no email in events either
     assert "$argon2id$" in dump  # only hashes are stored
+
+
+# ---- Session invalidation (token version) ----------------------------------------------------
+
+
+def test_stolen_old_token_is_rejected_after_password_change() -> None:
+    email = new_email()
+    auth.register_applicant(email, TEST_PASSWORD)
+    stolen = auth.sign_in(email, TEST_PASSWORD)  # e.g. a token copied from another device
+    current = auth.sign_in(email, TEST_PASSWORD)
+    fresh = auth.change_password(current.principal, TEST_PASSWORD, OTHER_PASSWORD)
+    for old in (stolen.token, current.token):
+        with pytest.raises(auth.InvalidSession):
+            auth.principal_from_token(old)
+    assert auth.principal_from_token(fresh.token).email == email  # this session continues
+    assert fresh.principal.token_version == current.principal.token_version + 1
+    with pytest.raises(auth.InvalidSession):  # the stale principal is refused as well
+        auth.verify_principal(current.principal)
+    assert auth.verify_principal(fresh.principal) == fresh.principal
+
+
+@pytest.mark.parametrize("action", ["temporary_password", "deactivate", "reactivate"])
+def test_manager_actions_end_the_users_sessions(action) -> None:
+    manager = _manager()
+    target = new_session()
+    tid = target.principal.user_id
+    if action == "temporary_password":
+        auth.set_temporary_password(manager.principal, tid, OTHER_PASSWORD)
+    elif action == "deactivate":
+        auth.set_active(manager.principal, tid, False)
+    else:
+        auth.set_active(manager.principal, tid, False)
+        middle = target.token
+        auth.set_active(manager.principal, tid, True)
+        with pytest.raises(auth.InvalidSession):
+            auth.principal_from_token(middle)
+    with pytest.raises(auth.InvalidSession):
+        auth.principal_from_token(target.token)
+    assert auth.principal_from_token(manager.token)  # the manager's own session is unaffected
+
+
+def test_token_version_claim_is_required() -> None:
+    import jwt as pyjwt
+
+    user = new_session().principal
+    key = settings.signing_key().value
+    claims = {"sub": str(user.user_id), "role": user.role, "iat": 1, "exp": 4_000_000_000,
+              "iss": "loanlens"}  # fmt: skip
+    for extra in ({}, {"ver": "0"}, {"ver": True}, {"ver": 5}):
+        token = pyjwt.encode({**claims, **extra}, key, algorithm="HS256")
+        with pytest.raises(auth.InvalidSession):
+            auth.principal_from_token(token)
+    good = pyjwt.encode({**claims, "ver": 0}, key, algorithm="HS256")
+    assert auth.principal_from_token(good).user_id == user.user_id

@@ -20,6 +20,8 @@ PAGE_ROLES = {
     "pages/3_Analytics.py": auth.MANAGER,
     "pages/5_Users.py": auth.MANAGER,
     "pages/6_Account.py": auth.APPLICANT,
+    "pages/7_My_History.py": auth.APPLICANT,
+    "pages/8_Audit.py": auth.MANAGER,
 }
 
 
