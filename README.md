@@ -38,7 +38,7 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 | **Chosen model** | XGBoost with monotone constraints (a higher CIBIL never lowers, a bigger loan never raises the score) and isotonic calibration, on 5 features. Chosen as the simplest model within about 1% of the best; the constraints cost 0.4 ROC-AUC points. |
 | **Cross-validation** (stratified 5-fold, seed 42) | ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546 |
 | **Leakage check** | Shuffled labels give ROC-AUC 0.499 (chance). CIBIL alone reaches 0.960; without CIBIL the model drops to 0.584. |
-| **Tests** | 655 passing, 8 skipped (7 PostgreSQL tests without a PostgreSQL database and one PostgreSQL-only check on SQLite) (`pytest`), 99% coverage of `src/loanlens`, `ruff` clean |
+| **Tests** | 668 passing and 1 skipped with a PostgreSQL test database (the skip is a PostgreSQL-only check on SQLite); 659 passing and 10 skipped without one (`pytest`), 99% coverage of `src/loanlens`, `ruff` clean |
 | **Batch speed** (measured) | 1,000 rows in about 0.7 s, 10,000 rows in about 6.2 s, 50,000 rows in about 16-32 s |
 | **Benchmark** | In the primary dataset, **CIBIL dominates** (about 99% approved above 550, about 10% at or below). In `bank_loan_data.csv`, **a previous default dominates** and credit score alone had almost no effect (ROC-AUC 0.50). |
 
@@ -210,7 +210,7 @@ Every decision is written to the **append-only** table `decision_audit` before i
 
 Each record holds: a random id, the time (UTC), `user_ref` (the signed-in account's random audit reference, never an email or name), the role, the channel, a batch id for batches, the request id (the API's `X-Request-ID`), the loan type, policy version and hash, model version, **only the eight model input fields**, the status, probability, borderline flag and reason codes.
 
-- **Append-only:** there is no code that updates or deletes a record, and database triggers reject every `UPDATE` and `DELETE` on the table (on SQLite and PostgreSQL; PostgreSQL also rejects `TRUNCATE`). Tests prove the triggers work on SQLite; see [Development](#development) for PostgreSQL.
+- **Append-only:** there is no code that updates or deletes a record, and database triggers reject every `UPDATE` and `DELETE` on the table (on SQLite and PostgreSQL; PostgreSQL also rejects `TRUNCATE`). Tests prove the triggers work on SQLite and on PostgreSQL (run against PostgreSQL 16.15 on 2026-11-06); see [Development](#development).
 - **My History** shows applicants their own records only (date, loan type, status, likelihood, reasons), with a CSV download.
 - **Audit** (managers) filters by date range, status, loan type, channel, model version and policy version, shows counts and exports CSV.
 - **Account deletion:** the user row is removed, but the audit records stay. They carry only the random reference, so they can no longer be linked to the person, and nobody can open that history again.
@@ -340,11 +340,11 @@ python -m loanlens.rules               # write reports/rules_vs_labels.md
 python scripts/example_decisions.py    # write reports/example_decisions.md
 python scripts/make_batch_fixture.py   # regenerate the synthetic tests/fixtures/batch_1000.csv
 ruff check .
-pytest                                 # 655 passed, 8 skipped (PostgreSQL)
+pytest                                 # 659 passed, 10 skipped (668 passed, 1 skipped with PostgreSQL)
 pytest --cov=loanlens                  # coverage of src/loanlens (99%)
 ```
 
-Tests that need the dataset or model skip themselves if `data/raw/` is empty. The PostgreSQL tests (database layer and audit triggers) run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped. **They have not been run yet**, so PostgreSQL support is not verified.
+Tests that need the dataset or model skip themselves if `data/raw/` is empty. The PostgreSQL tests (database layer and audit triggers) run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped. On 2026-11-06 all 9 of them ran and passed against a disposable PostgreSQL 16.15 database on this Windows machine (database layer, the audit triggers including `TRUNCATE`, and the check that migrations leave logging alone). PostgreSQL inside Docker has not been tested yet.
 
 ## Limitations
 

@@ -306,3 +306,12 @@
   - The screenshot run (all pages, including My History and Audit) had no server-log errors and no passwords in the log.
 - **Not repeated:** the fresh-clone verification.
 - Decisions: D-084 to D-090.
+
+## Milestone 3 fix: migrations no longer reset logging; PostgreSQL tests verified (2026-11-06)
+- **Problem:** with `LOANLENS_TEST_POSTGRES_URL` set, `pytest tests/test_db.py tests/test_audit.py tests/test_auth.py` failed 3 auth tests (empty `caplog`, "Logging error: ValueError: I/O operation on closed file"). Cause: the Alembic command-line test loads alembic.ini's logging section inside the test process, which disabled every existing logger and bound a handler to a closed stream (D-091).
+- **Fix:** `ensure_schema()` marks its Alembic config with `skip_logging_config`; `env.py` applies alembic.ini's logging only for the `alembic` command, with `disable_existing_loggers=False`. The CLI test restores logging afterwards. `alembic upgrade head` from the project root works as before.
+- **New tests:** loggers and root handlers unchanged after `ensure_schema` (SQLite and PostgreSQL); `caplog` still captures warnings after migrations (SQLite and PostgreSQL); the three auth tests pass with the CLI test before and after them.
+- **Checks on 2026-11-06 (this Windows machine, PostgreSQL 16.15 in a disposable database on port 5433):**
+  - With `LOANLENS_TEST_POSTGRES_URL` set: 668 passed, 1 skipped (the SQLite case of the TRUNCATE check). All 9 PostgreSQL tests ran and passed: `test_migration_creates_tables`, `test_round_trip`, `test_ids_not_stored_by_default`, `test_ensure_schema_leaves_logging_alone`, `test_caplog_works_after_ensure_schema` (test_db.py) and `test_triggers_reject_update_and_delete`, `test_orm_changes_are_rejected_too`, `test_truncate_rejected_on_postgres`, `test_inserts_still_work_in_chunks` (test_audit.py). PostgreSQL support, including the append-only triggers, is now verified on this machine (not yet inside Docker).
+  - Without it: 659 passed, 10 skipped (the 9 PostgreSQL tests and the TRUNCATE check on SQLite).
+  - The three test files pass in both orders (127 passed, 1 skipped each). Coverage 99%, ruff clean. Decision logic untouched; the example-decision tests pass.

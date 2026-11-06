@@ -698,6 +698,14 @@ Each entry records what was found, what was chosen, and why.
   - Also `.env.example`, `requirements.txt` and the CLAUDE.md status.
 - **Screenshots:** two new ones, 13 My History and 14 Audit (983 decisions: 980 batch rows and 3 form checks), and all earlier ones retaken. The run used a throwaway database with generated secrets; the server log had no errors and no passwords.
 
+## Milestone 3 fix: migrations and logging
+
+### D-091 Migrations no longer reset logging
+- **Found:** reproduced 3 failures in `tests/test_auth.py` (empty `caplog`, "I/O operation on closed file" from `alembic.runtime.migration`) when running `test_db.py`, `test_audit.py`, `test_auth.py` in that order with `LOANLENS_TEST_POSTGRES_URL` set. The suspected cause was only partly right: `ensure_schema()` did not call `fileConfig` (it passes a connection, so `env.py` returned before that line, and its `Config()` has no file). The call came from `test_alembic_command_line`, which loads `alembic.ini` inside the test process. `fileConfig`'s default `disable_existing_loggers=True` disabled every logger that already existed (`loanlens.auth.*`, created when `test_audit.py` was imported) and put a root handler on pytest's captured stderr, which is closed later. The full run passed only because `test_auth.py` sorts before `test_db.py`. The same would happen to any process that used alembic.ini programmatically.
+- **Chosen:** as requested, `ensure_schema()` sets `cfg.attributes["skip_logging_config"] = True`; `env.py` calls `fileConfig(..., disable_existing_loggers=False)` only when that attribute is not set and a config file exists, for both online and offline (`--sql`) runs. `test_alembic_command_line` now restores the logging configuration after itself (a `restore_logging` fixture) and checks that earlier loggers stay enabled.
+- **Tests:** `test_ensure_schema_leaves_logging_alone` and `test_caplog_works_after_ensure_schema` (SQLite and PostgreSQL) guard the contract for the app path; they pass on the old code too, because that path was already clean. `test_auth_logging_tests_pass_in_either_order` runs the CLI test and the three auth tests in a subprocess in both orders (fast, instead of rerunning all three files inside the suite); the three full files were also run manually in both orders. The probe warning uses `loanlens.auth.settings`, not `loanlens.api`, because the API logger has its own JSON handler and `propagate=False` by design, so `caplog` never sees it.
+- **Result:** all 9 PostgreSQL tests ran and passed against PostgreSQL 16.15 (disposable database, port 5433) on 2026-11-06; CLAUDE.md, README, PROJECT_EXPLAINED and progress updated accordingly.
+
 ## Suggestions
 - In the modelling phase, consider adding loan-to-income (and possibly EMI-to-income) as a model feature. It explains most of the gap between 98.2% and 99.6%.
 - In the explainability phase, limit "what would change" to directions that make lending sense (raise CIBIL, lower the loan) and never suggest increasing the loan or shortening the term just because the synthetic data rewards it.
@@ -716,6 +724,6 @@ Each entry records what was found, what was chosen, and why.
 - (Done in Milestone 3, D-084) Revoke open sessions when a password changes.
 - (Done in Milestone 3, D-085) Batch scoring and analytics functions check the role in the service layer.
 - (Rate limits done for the API in Milestone 3, D-089.) Consider a larger breached-password list; sign-up still reveals whether an email is registered (D-076). The Streamlit sign-in page relies on the account lockout only.
-- Run the PostgreSQL tests, now including the audit triggers, against a disposable database (`LOANLENS_TEST_POSTGRES_URL`).
+- (Done on 2026-11-06, D-091) Run the PostgreSQL tests, now including the audit triggers, against a disposable database (`LOANLENS_TEST_POSTGRES_URL`). Still to do: run them against PostgreSQL inside Docker in Milestone 5, and in CI.
 - Use a shared store for rate limits if the API is run as several processes or behind a proxy (with a trusted-proxy setting for client addresses).
 - An API endpoint for changing a password, so API-only users created with a temporary password do not need the web app.

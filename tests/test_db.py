@@ -6,8 +6,11 @@ database (its tables are dropped and recreated); otherwise they are skipped.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -177,18 +180,87 @@ def test_unreachable_database_is_friendly() -> None:
     assert exc.value.__cause__ is None  # driver error suppressed
 
 
-def test_alembic_command_line(tmp_path, monkeypatch, capsys) -> None:
+def _logging_state() -> dict:
+    """The parts of the logging configuration that alembic.ini's fileConfig would change."""
+    root = logging.getLogger()
+    loggers = {
+        name: (lg.disabled, lg.level, list(lg.handlers), lg.propagate)
+        for name, lg in logging.Logger.manager.loggerDict.items()
+        if isinstance(lg, logging.Logger)
+    }
+    return {"root": (root.level, list(root.handlers)), "loggers": loggers}
+
+
+@pytest.fixture
+def restore_logging():
+    """Put the logging configuration back after a test that runs Alembic's own setup."""
+    root = logging.getLogger()
+    before = _logging_state()
+    yield
+    level, handlers = before["root"]
+    for handler in list(root.handlers):
+        if handler not in handlers:
+            root.removeHandler(handler)
+            handler.close()
+    for handler in handlers:
+        if handler not in root.handlers:
+            root.addHandler(handler)
+    root.setLevel(level)
+    for name, lg in list(logging.Logger.manager.loggerDict.items()):
+        if not isinstance(lg, logging.Logger):
+            continue
+        if name in before["loggers"]:
+            disabled, lvl, hdlrs, propagate = before["loggers"][name]
+            lg.disabled, lg.level, lg.handlers, lg.propagate = disabled, lvl, hdlrs, propagate
+        else:
+            lg.disabled = False
+    logging.Logger.manager._clear_cache()
+
+
+APP_LOGGERS = ("loanlens.auth.settings", "loanlens.auth.service", "loanlens.api")
+
+
+def test_ensure_schema_leaves_logging_alone(db_url) -> None:
+    """Running migrations from code never disables loggers or replaces root handlers."""
+    loggers = [logging.getLogger(name) for name in APP_LOGGERS]
+    before = _logging_state()
+    db_engine.reset_caches()
+    db_engine.ensure_schema(db_url)
+    assert db_url in db_engine._migrated  # the migrations really ran
+    assert all(not lg.disabled for lg in loggers)
+    after = _logging_state()
+    assert after["root"] == before["root"]  # root level and handlers unchanged
+    # every logger that existed before is unchanged (Alembic may add its own new loggers)
+    assert {name: after["loggers"][name] for name in before["loggers"]} == before["loggers"]
+
+
+def test_caplog_works_after_ensure_schema(db_url, caplog) -> None:
+    """A loanlens warning emitted after migrations ran in the same test is still captured."""
+    from loanlens import auth
+
+    db_engine.reset_caches()
+    db_engine.ensure_schema(db_url)
+    with caplog.at_level(logging.WARNING):
+        logging.getLogger("loanlens.auth.settings").warning("probe after migrations")
+        assert not auth.bootstrap_from_env({auth.settings.ENV_BOOTSTRAP_EMAIL: "a@example.com"})
+    assert "probe after migrations" in caplog.text
+    assert "Only one of" in caplog.text
+
+
+def test_alembic_command_line(tmp_path, monkeypatch, capsys, restore_logging) -> None:
     """`alembic upgrade head` from the project root uses DATABASE_URL; --sql works offline."""
     from alembic import command
     from alembic.config import Config
 
     from loanlens.config import PROJECT_ROOT
 
+    loggers = [logging.getLogger(name) for name in APP_LOGGERS]
     db = tmp_path / "cli.sqlite"
     monkeypatch.setenv(db_engine.ENV_VAR, f"sqlite:///{db.as_posix()}")
     monkeypatch.chdir(PROJECT_ROOT)
     cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
     command.upgrade(cfg, "head")
+    assert all(not lg.disabled for lg in loggers)  # even the CLI setup keeps existing loggers
     with sqlite3.connect(db) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
@@ -207,3 +279,33 @@ def test_alembic_command_line(tmp_path, monkeypatch, capsys) -> None:
     sql = capsys.readouterr().out
     assert "CREATE TABLE batch_summaries" in sql and "CREATE TABLE users" in sql
     db_engine.reset_caches()
+
+
+ORDER_SENSITIVE = (
+    "tests/test_db.py::test_alembic_command_line",
+    "tests/test_auth.py::test_missing_secret_in_development_uses_a_temporary_key",
+    "tests/test_auth.py::test_bootstrap_creates_the_first_manager_once",
+    "tests/test_auth.py::test_bootstrap_needs_both_values_and_a_valid_password",
+)
+
+
+@pytest.mark.parametrize("order", ["cli_first", "cli_last"])
+def test_auth_logging_tests_pass_in_either_order(order) -> None:
+    """The auth warnings are captured whether or not the Alembic CLI test ran before them."""
+    from loanlens.config import PROJECT_ROOT
+
+    ids = (
+        list(ORDER_SENSITIVE)
+        if order == "cli_first"
+        else list(ORDER_SENSITIVE[1:]) + [ORDER_SENSITIVE[0]]
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "addopts=", *ids],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout[-3000:]
+    assert "4 passed" in result.stdout
+    assert "Logging error" not in result.stdout + result.stderr

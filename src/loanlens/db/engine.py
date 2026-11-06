@@ -128,6 +128,7 @@ def ensure_schema(url: str) -> None:
             return
         cfg = Config()
         cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
+        cfg.attributes["skip_logging_config"] = True  # never touch the process's logging
         try:
             with get_engine(url).begin() as conn:
                 cfg.attributes["connection"] = conn

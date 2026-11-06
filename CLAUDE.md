@@ -136,7 +136,7 @@ After M1: 376 tests passing, 3 PostgreSQL tests skipped unless LOANLENS_TEST_POS
 
 After M2: 499 tests passing, 3 PostgreSQL tests skipped unless LOANLENS_TEST_POSTGRES_URL is set, 99% coverage, ruff clean.
 
-After M3: 655 tests passing, 8 skipped (7 PostgreSQL tests unless LOANLENS_TEST_POSTGRES_URL is set, 1 PostgreSQL-only check on SQLite), 99% coverage, ruff clean. PostgreSQL tests have not been run.
+After M3: 655 tests passing, 8 skipped (7 PostgreSQL tests unless LOANLENS_TEST_POSTGRES_URL is set, 1 PostgreSQL-only check on SQLite), 99% coverage, ruff clean. After the M3 logging fix (2026-11-06): 668 passed and 1 skipped with LOANLENS_TEST_POSTGRES_URL set (all 9 PostgreSQL tests ran and passed against PostgreSQL 16.15), 659 passed and 10 skipped without it, 99% coverage, ruff clean.
 
 v2.0: see section 15. A milestone is done only when ruff is clean, all tests pass, the example decisions are unchanged under the default personal profile, docs are updated and the work is committed.
 
@@ -174,7 +174,7 @@ Goal: turn the prototype into a platform that can be demonstrated as deployable 
 |---|---|---|
 | M1 | Database layer (SQLAlchemy, Alembic, PostgreSQL-ready); versioned policy profiles (personal, home, vehicle) with content hashes; model registry with versions, hashes and activation | Done (commit 199b235; 376 tests passed, 3 PostgreSQL tests skipped because no PostgreSQL server was available, 98% coverage; example decisions unchanged) |
 | M2 | Authentication: applicant and manager roles, sign in and sign up, lockout, JWT sessions, account page, user management, remove the old shared password | Done (commit "Milestone 2: authentication and roles"; 499 tests passed, 3 PostgreSQL tests skipped, 99% coverage; example decisions unchanged) |
-| M3 | Append-only decision audit trail (database triggers block update and delete), applicant history page, manager audit page, REST API under /v1 with health endpoints and OpenAPI docs | Done (commit "Milestone 3: audit trail and REST API"; 655 tests passed, 8 skipped, 99% coverage; PostgreSQL tests NOT run because LOANLENS_TEST_POSTGRES_URL was not set, so PostgreSQL support is unverified; example decisions unchanged) |
+| M3 | Append-only decision audit trail (database triggers block update and delete), applicant history page, manager audit page, REST API under /v1 with health endpoints and OpenAPI docs | Done (commit "Milestone 3: audit trail and REST API"; 655 tests passed, 8 skipped, 99% coverage; example decisions unchanged). PostgreSQL verified on 2026-11-06 after the fix "migrations no longer reset logging": all 9 PostgreSQL tests (database layer, audit triggers including TRUNCATE, migration logging) ran and passed against a disposable PostgreSQL 16.15 database; full suite 668 passed, 1 skipped (the SQLite-only TRUNCATE case) |
 | M4 | Chunked, memory-safe batch pipeline; Parquet; background jobs with an embedded or external worker; measured benchmarks at 100k, 500k and 1M rows (reports/performance.md); load test (reports/load_test.md) | Not started |
 | M5 | Hosted-ready assets (no data folder needed), Docker and docker-compose, deployment docs, final documentation and screenshots, secret scan, release v2.0 and push | Not started |
 
