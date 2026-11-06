@@ -9,7 +9,7 @@ from ui_common import footer, get_model, get_policy, setup_page
 from loanlens import charts, cleaning, explain, storage
 from loanlens import model as model_mod
 
-setup_page("Analytics", "📊")
+setup_page("Analytics")
 policy = get_policy()
 artifact = get_model()
 
@@ -110,8 +110,8 @@ with tab_batch:
             ("primary", "Rows in file", f"{latest['total_rows']:,}"),
             ("primary", "Scored", f"{latest['valid_rows']:,}"),
             ("neutral", "Skipped (invalid)", f"{latest['invalid_rows']:,}"),
-            ("warning", "⚠ Borderline", f"{latest['borderline']:,}"),
-            ("approved", "✅ Approval rate", "n/a" if rate is None else f"{rate:.0%}"),
+            ("warning", "Borderline", f"{latest['borderline']:,}"),
+            ("approved", "Approval rate", "n/a" if rate is None else f"{rate:.0%}"),
         ]
         columns = st.columns(len(cards))
         for i, (col, (tone, label, value)) in enumerate(zip(columns, cards, strict=True)):

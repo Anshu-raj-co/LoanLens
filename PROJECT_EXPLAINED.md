@@ -81,12 +81,12 @@ LoanLens works in four plain steps:
 
 | What you see | What it means |
 |---|---|
-| ✅ **Green, Approved** | The application looks like those that were approved. |
-| ❌ **Red, Rejected** | The application looks like those that were rejected, or a basic rule failed. |
-| ⚠ **Amber, Borderline** | A close call. A person should take a second look ("manual review recommended"). The answer is still Approved or Rejected. |
+| **Green, Approved** | The application looks like those that were approved. |
+| **Red, Rejected** | The application looks like those that were rejected, or a basic rule failed. |
+| **Amber, Borderline** | A close call. A person should take a second look ("manual review recommended"). The answer is still Approved or Rejected. |
 | **Very likely** (85% or more), **Likely** (65 to 85%), **Borderline** (35 to 65%), **Unlikely** (15 to 35%), **Very unlikely** (under 15%) | How confident LoanLens is that the application would be approved. It never says 0% or 100%, because nothing is certain. |
 
-Colour is never the only signal: there is always a ✅, ❌ or ⚠ symbol and a word as well.
+Colour is never the only signal: the status is always written as a word too ("Approved", "Rejected", "Borderline - manual review recommended"), and each policy check says "Passed" or "Failed".
 
 ## What LoanLens is not
 
@@ -283,11 +283,11 @@ For each application: validate → rules → model probability `p` → Approved 
 
 ## 9. UI and theme
 
-Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and About. `app/ui_common.py` adds the header strip, sidebar, prototype notice and footer to every page, and turns errors (missing model, bad policy file) into friendly messages; `.streamlit/config.toml` hides stack traces.
+Five Streamlit pages: Home, Check My Eligibility, Bulk Check, Analytics and About. `app/ui_common.py` adds the header strip (the title "LoanLens" only), sidebar, prototype notice and footer to every page, and turns errors (missing model, bad policy file) into friendly messages; `.streamlit/config.toml` hides stack traces.
 
 `src/loanlens/theme.py` is the single home for every colour, the status-to-colour mapping, the CSS and the Plotly template. Approved is green, Rejected red, borderline amber, neutral series blue, on a white background.
 
-**Accessibility:** contrast is checked against WCAG AA in tests. Brand colours are used for borders, icons, chart marks and large headings; small coloured text uses darker shades (green `#157A45`, red `#B42318`, amber `#8A5A12`, blue `#1D5FCF`), each at least 4.5:1. Status is never shown by colour alone: there is always ✅ / ❌ / ⚠ plus a word.
+**Accessibility:** contrast is checked against WCAG AA in tests. Brand colours are used for borders, chart marks and large headings; small coloured text uses darker shades (green `#157A45`, red `#B42318`, amber `#8A5A12`, blue `#1D5FCF`), each at least 4.5:1. Status is never shown by colour alone: there is always a plain word as well. The app uses no emoji or icon characters (a test enforces this).
 
 ## 10. Testing
 

@@ -48,7 +48,7 @@ All screenshots use the built-in hypothetical example applicants or the fully sy
 
 | | |
 |---|---|
-| ![Home page](reports/screenshots/01_home.png) **Home:** purpose, disclaimer and the illustrative-thresholds notice. | ![Eligibility form](reports/screenshots/02_eligibility_form.png) **Check My Eligibility:** the 8-field form with hints and Indian-grouped amounts. |
+| ![Home page](reports/screenshots/01_home.png) **Home:** purpose, the illustrative-thresholds notice and links to every page. | ![Eligibility form](reports/screenshots/02_eligibility_form.png) **Check My Eligibility:** the 8-field form with hints and Indian-grouped amounts. |
 | ![Approved result](reports/screenshots/03_eligibility_approved.png) **Approved:** green banner, likelihood band and the factors working in the applicant's favour. | ![Rejected result](reports/screenshots/08_eligibility_rejected.png) **Rejected:** red banner, the exact rule that failed, and what would likely change the result. |
 | ![Rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png) **Rejected + borderline:** CIBIL 540 is just below the minimum, so manual review is recommended. | ![Bulk Check](reports/screenshots/05_bulk_check.png) **Bulk Check:** 1,000-row synthetic upload with summary cards, the skipped-rows report and coloured status cells. |
 | ![Analytics](reports/screenshots/06_analytics.png) **Analytics:** approval patterns in the training data, model drivers and the latest batch. | ![About](reports/screenshots/07_about.png) **About:** framing, metrics, current policy settings, borderline rules, benchmark and model card. |
@@ -103,8 +103,8 @@ Licences were read from Kaggle's dataset metadata; please check each page yourse
 
 | Page | What it does |
 |---|---|
-| **Home** | Purpose, the "approval, not default" disclaimer, the placeholder-thresholds notice and links to every page. |
-| **Check My Eligibility** (customers) | An 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green ✅ Approved or red ❌ Rejected banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber borderline pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks. **Nothing entered is stored or logged.** |
+| **Home** | Purpose, the placeholder-thresholds notice, links to every page and a short "how a result is decided" summary. |
+| **Check My Eligibility** (customers) | An 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). **Nothing entered is stored or logged.** |
 | **Bulk Check** (bank staff) | Behind the manager gate. Download the CSV template, upload up to **50,000 rows**, see invalid rows listed and skipped (with spreadsheet row numbers), a progress bar, summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, a results table with status / borderline / search filters, and a CSV download. Only an **anonymised summary** of each batch is saved (`data/loanlens.sqlite`). |
 | **Analytics** | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. |
 | **About** | The framing, data source, model metrics, every current policy value with its enforce setting, how the borderline flag works, the benchmark summary and the full model card. |

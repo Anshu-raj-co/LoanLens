@@ -91,7 +91,9 @@ def _page(app_path: str, name: str):
 def test_home_renders(app_path) -> None:
     at = _page(app_path, "Home.py").run()
     assert not at.exception and not at.error
-    assert any("approval decision" in w.value for w in at.warning)
+    assert not any("approval decision" in w.value for w in at.warning)  # box removed
+    assert any("illustrative placeholders" in i.value for i in at.info)
+    assert any("approval decision" in c.value for c in at.caption)  # footer keeps it
 
 
 def test_customer_page_renders(app_path, artifact) -> None:

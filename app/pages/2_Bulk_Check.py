@@ -20,7 +20,7 @@ from loanlens.formatting import SCORE_LABEL
 from loanlens.presentation import PROTOTYPE_NOTICE, thresholds_note
 from loanlens.theme import STYLED_ROWS_LIMIT, status_display_frame, style_status_column
 
-setup_page("Bulk Check", "🏦")
+setup_page("Bulk Check")
 policy = get_policy()
 
 gate = access.resolve_password(secrets=streamlit_secrets())
@@ -146,7 +146,7 @@ if parsed.ignored:
 if parsed.errors:
     with st.container(key="panel_warning_skipped"):
         st.warning(
-            f"⚠️ {len(parsed.errors):,} of {parsed.total_rows:,} rows have problems and were "
+            f"{len(parsed.errors):,} of {parsed.total_rows:,} rows have problems and were "
             "skipped. The rest were scored."
         )
         with st.expander(f"Show the {len(parsed.errors):,} skipped rows"):
@@ -154,7 +154,7 @@ if parsed.errors:
                 batch.errors_frame(parsed.errors), hide_index=True, use_container_width=True
             )
 else:
-    st.success(f"✅ All {parsed.total_rows:,} rows passed validation.")
+    st.success(f"All {parsed.total_rows:,} rows passed validation.")
 if not st.session_state.get("batch_saved", True):
     st.caption("Note: the anonymised summary could not be saved this time.")
 
@@ -167,9 +167,9 @@ if results.empty:
 st.subheader("3. Summary")
 cards = [
     ("primary", "Total scored", f"{summary['valid_rows']:,}"),
-    ("approved", "✅ Approved", f"{summary['approved']:,}"),
-    ("rejected", "❌ Rejected", f"{summary['rejected']:,}"),
-    ("warning", "⚠ Borderline", f"{summary['borderline']:,}"),
+    ("approved", "Approved", f"{summary['approved']:,}"),
+    ("rejected", "Rejected", f"{summary['rejected']:,}"),
+    ("warning", "Borderline", f"{summary['borderline']:,}"),
     ("neutral", "Skipped rows", f"{summary['invalid_rows']:,}"),
     ("primary", "Approval rate", f"{summary['approval_rate']:.0%}"),
 ]
@@ -196,7 +196,7 @@ st.caption(f"Showing {len(view):,} of {len(results):,} scored applicants. {SCORE
 if len(view) > STYLED_ROWS_LIMIT:
     st.caption(
         f"Status colours are shown for up to {STYLED_ROWS_LIMIT:,} rows; filter to see them. "
-        "The ✅ / ❌ labels are always shown."
+        "The Approved / Rejected labels are always shown."
     )
 shown = status_display_frame(view.drop(columns=["reason_codes"]))
 st.dataframe(

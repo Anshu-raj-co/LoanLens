@@ -63,7 +63,6 @@ FONT_STACK = (
 )
 
 # ---- Status -> colour ----------------------------------------------------------------------
-STATUS_ICONS = {"Approved": "✅", "Rejected": "❌"}
 STATUS_COLOURS = {"Approved": APPROVED, "Rejected": REJECTED}
 _TONES: dict[str, tuple[str, str, str]] = {  # tone -> (brand colour, tint, ink)
     "approved": (APPROVED, APPROVED_TINT, APPROVED_INK),
@@ -83,16 +82,15 @@ def status_colour(status: str) -> str:
 
 
 def status_style(status: str) -> dict[str, str]:
-    """Colour, tint, readable text colour and icon for a status."""
+    """Colour, tint and readable text colour for a status."""
     tone = "approved" if status == "Approved" else "rejected"
     colour, tint, ink = _TONES[tone] if status in STATUS_COLOURS else _TONES["neutral"]
-    return {"colour": colour, "tint": tint, "ink": ink, "icon": STATUS_ICONS.get(status, "")}
+    return {"colour": colour, "tint": tint, "ink": ink}
 
 
 def status_label(status: str) -> str:
-    """Status with its icon, e.g. '✅ Approved' (never colour alone)."""
-    icon = STATUS_ICONS.get(status, "")
-    return f"{icon} {status}".strip()
+    """Plain-text status label, e.g. 'Approved'. The word always appears with the colour."""
+    return str(status).strip()
 
 
 # ---- Accessibility -------------------------------------------------------------------------
@@ -115,23 +113,19 @@ def pill_html(text: str, tone: str = "warning") -> str:
     return f'<span class="ll-pill ll-pill-{tone}">{html.escape(text)}</span>'
 
 
-def header_html(name: str, tagline: str) -> str:
-    """The branded header strip shown at the top of every page."""
-    return (
-        '<div class="ll-header"><span class="ll-brand">'
-        f'<span class="ll-logo" aria-hidden="true">◎</span>{html.escape(name)}</span>'
-        f'<span class="ll-tagline">{html.escape(tagline)}</span></div>'
-    )
+def header_html(name: str) -> str:
+    """The branded header strip shown at the top of every page: the product name only."""
+    return f'<div class="ll-header"><span class="ll-brand">{html.escape(name)}</span></div>'
 
 
 # ---- Tables --------------------------------------------------------------------------------
-# Above this many rows the results table is shown with icon text only (no cell colours), so a
-# very large upload stays fast. Display setting only.
+# Above this many rows the results table is shown as plain status text (no cell colours), so
+# a very large upload stays fast. Display setting only.
 STYLED_ROWS_LIMIT = 5_000
 
 
 def status_display_frame(frame: pd.DataFrame, column: str = "status") -> pd.DataFrame:
-    """Copy of a results frame for display, with the status shown as '✅ Approved' etc."""
+    """Copy of a results frame for display, with the status shown as plain text."""
     shown = frame.copy()
     if column in shown.columns:
         shown[column] = shown[column].map(lambda s: status_label(str(s)))
@@ -139,7 +133,7 @@ def status_display_frame(frame: pd.DataFrame, column: str = "status") -> pd.Data
 
 
 def style_status_column(frame: pd.DataFrame, column: str = "status"):  # -> Styler
-    """Pandas Styler colouring a status column (values may carry the icon, e.g. '✅ Approved').
+    """Pandas Styler colouring a status column ('Approved' or 'Rejected').
 
     Approved cells get the green tint with dark-green text, Rejected the red tint with
     dark-red text. Display only: the downloaded CSV is built from the raw results.
@@ -266,13 +260,12 @@ p, li {{ font-size: 1rem; line-height: 1.6; }}
 a {{ color: {PRIMARY_INK}; }}
 
 /* Header strip */
-.ll-header {{ display: flex; align-items: baseline; gap: 0.9rem; flex-wrap: wrap;
+.ll-header {{ display: flex; align-items: center; min-height: 4.4rem; box-sizing: border-box;
   background: {PRIMARY_INK}; border-bottom: 4px solid {INDIGO};
-  color: #FFFFFF; border-radius: 14px; padding: 0.85rem 1.3rem; margin-bottom: 1.1rem;
+  color: #FFFFFF; border-radius: 14px; padding: 0.7rem 1.3rem; margin-bottom: 1.1rem;
   box-shadow: 0 4px 14px rgba(46, 116, 233, 0.18); }}
-.ll-brand {{ font-size: 1.45rem; font-weight: 750; letter-spacing: -0.01em; }}
-.ll-logo {{ margin-right: 0.4rem; opacity: 0.9; }}
-.ll-tagline {{ font-size: 1rem; font-weight: 500; }}
+.ll-brand {{ font-size: 2.4rem; font-weight: 800; line-height: 1.15; color: #FFFFFF;
+  letter-spacing: -0.015em; }}
 
 /* Sidebar */
 [data-testid="stSidebar"] {{ background: {SOFT_PANEL}; border-right: 1px solid {BORDER}; }}
@@ -390,10 +383,10 @@ a {{ color: {PRIMARY_INK}; }}
         f".ll-check {{ display: flex; gap: 0.55rem; align-items: baseline; padding: 0.35rem 0;"
         f" border-bottom: 1px solid {BORDER}; }}\n"
         f".ll-check:last-child {{ border-bottom: none; }}\n"
-        f".ll-check-icon {{ font-weight: 800; min-width: 1.2rem; }}\n"
-        f".ll-check-pass .ll-check-icon {{ color: {APPROVED_INK}; }}\n"
-        f".ll-check-fail .ll-check-icon {{ color: {REJECTED_INK}; }}\n"
-        f".ll-check-advisory .ll-check-icon {{ color: {WARNING_INK}; }}\n"
+        f".ll-check-status {{ font-weight: 800; min-width: 5.2rem; }}\n"
+        f".ll-check-pass .ll-check-status {{ color: {APPROVED_INK}; }}\n"
+        f".ll-check-fail .ll-check-status {{ color: {REJECTED_INK}; }}\n"
+        f".ll-check-advisory .ll-check-status {{ color: {WARNING_INK}; }}\n"
         f".ll-check-label {{ font-weight: 600; color: {TEXT}; }}\n"
         f".ll-check-detail {{ color: {MUTED}; }}\n"
     )
@@ -405,23 +398,26 @@ def css_block() -> str:
     return f"<style>{app_css()}</style>"
 
 
-CHECK_ICONS = {"Pass": ("✓", "pass"), "Fail": ("✗", "fail"), "Advisory": ("!", "advisory")}
+CHECK_WORDS = {
+    "Pass": ("Passed", "pass"),
+    "Fail": ("Failed", "fail"),
+    "Advisory": ("Advisory", "advisory"),
+}
 
 
 def policy_checks_html(rows: pd.DataFrame) -> str:
-    """Policy-check list: green tick for passed rules, red cross for failed, amber '!' advisory.
+    """Policy-check list: the word "Passed" (green), "Failed" (red) or "Advisory" (amber).
 
-    ``rows`` is ``DecisionView.rule_rows`` (Check, Result, Details). The result word is kept
-    next to the icon so colour is never the only signal.
+    ``rows`` is ``DecisionView.rule_rows`` (Check, Result, Details). The status is always a
+    word, so colour is never the only signal.
     """
     items = []
     for _, row in rows.iterrows():
-        icon, kind = CHECK_ICONS.get(str(row["Result"]), ("•", "advisory"))
+        word, kind = CHECK_WORDS.get(str(row["Result"]), (str(row["Result"]), "advisory"))
         items.append(
             f'<div class="ll-check ll-check-{kind}">'
-            f'<span class="ll-check-icon" aria-hidden="true">{icon}</span>'
-            f'<span><span class="ll-check-label">{html.escape(str(row["Check"]))}: '
-            f'{html.escape(str(row["Result"]))}.</span> '
+            f'<span class="ll-check-status">{html.escape(word)}</span>'
+            f'<span><span class="ll-check-label">{html.escape(str(row["Check"]))}.</span> '
             f'<span class="ll-check-detail">{html.escape(str(row["Details"]))}</span></span>'
             "</div>"
         )

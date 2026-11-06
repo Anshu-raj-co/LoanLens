@@ -33,7 +33,7 @@ LABELS = {
 
 def render(title: str, applicant: dict[str, float], result: DecisionResult) -> str:
     """Format one decision as Markdown text."""
-    flag = " ⚠️ *Borderline: manual review recommended*" if result.borderline else ""
+    flag = " - *Borderline: manual review recommended*" if result.borderline else ""
     lines = [f"## {title}", "", "**Applicant (hypothetical)**", ""]
     lines += [f"- {LABELS[k][0]}: {LABELS[k][1](v)}" for k, v in applicant.items()]
     lines += [
@@ -65,7 +65,7 @@ def render(title: str, applicant: dict[str, float], result: DecisionResult) -> s
     lines.append("**Policy checks**")
     lines.append("")
     for r in result.rule_results:
-        mark = "✅ pass" if r.passed else ("❌ FAIL" if r.enforce else "⚠️ advisory")
+        mark = "Passed" if r.passed else ("Failed" if r.enforce else "Advisory")
         lines.append(f"- {mark}: {r.message}")
     if result.warnings:
         lines += ["", "**Warnings**", ""]

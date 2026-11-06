@@ -254,3 +254,8 @@
 
 ### History rewrite and audit
 - Backup bundle created; history rewritten with `git filter-repo` (terms scrubbed, author and committer set to the GitHub no-reply identity, historical dataset copies and old screenshots stripped). 0 matches remain in `git log --all -p`. ruff passes, 281 tests pass. See D-066 and D-067.
+
+## Visual cleanup (done)
+- Emoji removed from the app, the UI modules, the example-decisions script and report, README, USER_GUIDE and PROJECT_EXPLAINED (102 emoji characters). Status is shown by colour plus the words Approved / Rejected / Borderline - manual review recommended; policy checks show Passed / Failed / Advisory.
+- The yellow disclaimer box is gone from Home (the text remains in every footer, on About and in README). The header strip shows only "LoanLens" at 2.4rem bold.
+- New `tests/test_no_emoji.py` scans source files and rendered pages. All screenshots retaken. Example decisions are identical to before (decisions_log D-068, D-069).

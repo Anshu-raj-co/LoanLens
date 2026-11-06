@@ -17,7 +17,7 @@ from loanlens.presentation import (
 from loanlens.schema import ValidationFailure
 from loanlens.theme import pill_html, policy_checks_html, status_label
 
-setup_page("Check My Eligibility", "🙋")
+setup_page("Check My Eligibility")
 policy = get_policy()
 artifact = get_model()
 
@@ -68,14 +68,14 @@ if checked:
                 alert(f"### {status_label(view.status)}\n{view.headline}")
                 if view.borderline:
                     st.markdown(
-                        pill_html("⚠ Borderline - manual review recommended", "warning"),
+                        pill_html("Borderline - manual review recommended", "warning"),
                         unsafe_allow_html=True,
                     )
             with score_col:
                 st.metric("Approval likelihood", view.likelihood)
                 st.caption(view.score_label)
         if view.borderline:
-            st.warning(f"⚖️ **Borderline: manual review recommended.** {view.borderline_note}")
+            st.warning(f"**Borderline: manual review recommended.** {view.borderline_note}")
         st.info(f"**{view.notice}.**")
 
         if view.reasons:
@@ -85,22 +85,22 @@ if checked:
                     st.markdown(f"**{reason.message}**")
                     st.caption(f"Your value: {reason.your_value}  |  Benchmark: {reason.benchmark}")
                     if reason.suggestion:
-                        st.markdown(f"💡 {reason.suggestion}")
+                        st.markdown(reason.suggestion)
 
         if not view.approved:
             st.markdown("#### What would likely change this")
             with st.container(key="card_primary_change"):
-                st.markdown(f"🔁 {view.change_summary}")
+                st.markdown(view.change_summary)
                 st.caption("Estimates only: a change is never a guarantee of approval.")
 
         if view.positives:
             st.markdown("#### What is working in your favour")
             for i, reason in enumerate(view.positives):
                 with st.container(key=f"card_approved_positive_{i}"):
-                    st.markdown(f"✅ {reason.message}")
+                    st.markdown(reason.message)
 
         for warning in view.warnings:
-            st.warning(f"⚠️ {warning}")
+            st.warning(warning)
 
         with st.expander("Policy checks"):
             st.markdown(policy_checks_html(view.rule_rows), unsafe_allow_html=True)

@@ -27,14 +27,14 @@ Under each amount the app repeats what you typed in Indian grouping (for example
 
 ### Reading your result
 
-- **The banner:** a green **✅ Approved** or a red **❌ Rejected** with a one-line summary ("Likely to be approved", or "Likely to be rejected (a policy rule was not met)").
+- **The banner:** a green **Approved** or a red **Rejected** with a one-line summary ("Likely to be approved", or "Likely to be rejected (a policy rule was not met)").
 - **Approval likelihood:** for example "96% - Very likely". It never shows 0% or 100% (">99%" / "<1%" instead). The words mean: Very likely (85% or more), Likely (65-85%), Borderline (35-65%), Unlikely (15-35%), Very unlikely (under 15%). It is a *model score on synthetic data - indicative only*.
-- **⚠ Borderline - manual review recommended** (amber): the case is close to call; see below.
+- **Borderline - manual review recommended** (amber): the case is close to call; see below.
 - **Why** (red-edged cards, rejections only): the main reasons, each with *your value*, a *benchmark* and a suggestion. A failed policy rule always comes first.
 - **What would likely change this** (blue card): for example "Raising your CIBIL score to about 560 would likely change the result." It only ever suggests a higher CIBIL score or a smaller loan, and it is an estimate, never a guarantee.
 - **What is working in your favour** (green-edged cards, approvals only).
 - **Warnings** (amber): for example values outside the range the model has seen, or an EMI that looks high at the assumed 10% interest rate.
-- **Policy checks** (click to open): each rule with a green ✓ (passed), red ✗ (failed) or amber ! (advisory only).
+- **Policy checks** (click to open): each rule marked with the word "Passed" (green), "Failed" (red) or "Advisory" (amber, advisory only).
 
 ### How the borderline flag works
 
@@ -102,8 +102,8 @@ Tips:
 
 1. Upload the file. Tick *Also list positive factors* only if you need them (slower).
 2. **Skipped rows** (amber panel): rows with problems are not scored. Open the list to see each one with its spreadsheet row number (header = row 1) and every problem in it. Fix them and upload again if needed. The rest of the file is still scored.
-3. **Summary cards:** total scored (blue), ✅ approved (green), ❌ rejected (red), ⚠ borderline (amber), skipped rows (grey) and approval rate, plus the top rejection reasons.
-4. **Results table:** filter by status, borderline, or search for an ID or a reason. Status cells are coloured and always show ✅ / ❌ as well. (For more than 5,000 visible rows, colours are switched off for speed; the icons stay.)
+3. **Summary cards:** total scored (blue), approved (green), rejected (red), borderline (amber), skipped rows (grey) and approval rate, plus the top rejection reasons.
+4. **Results table:** filter by status, borderline, or search for an ID or a reason. Status cells are coloured and always show the word "Approved" or "Rejected". (For more than 5,000 visible rows, colours are switched off for speed; the words stay.)
 5. **Download all results (CSV):** plain data, one row per scored applicant.
 
 ### Result columns

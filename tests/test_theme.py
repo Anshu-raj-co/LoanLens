@@ -47,8 +47,9 @@ def test_status_colour_mapping() -> None:
     assert theme.status_colour("Rejected") == REQUIRED["rejected"]
     assert theme.status_style("Approved")["tint"] == REQUIRED["approved_tint"]
     assert theme.status_style("Rejected")["tint"] == REQUIRED["rejected_tint"]
-    assert theme.status_label("Approved") == "✅ Approved"
-    assert theme.status_label("Rejected") == "❌ Rejected"
+    assert theme.status_label("Approved") == "Approved"  # plain word, no icon
+    assert theme.status_label("Rejected") == "Rejected"
+    assert "icon" not in theme.status_style("Approved")
     with pytest.raises(ValueError):
         theme.status_colour("Maybe")
 
@@ -82,18 +83,24 @@ def test_text_contrast_meets_wcag_aa() -> None:
 
 def test_status_table_styling_pairs_colour_with_text() -> None:
     frame = theme.status_display_frame(pd.DataFrame({"status": ["Approved", "Rejected"]}))
-    assert list(frame["status"]) == ["✅ Approved", "❌ Rejected"]
+    assert list(frame["status"]) == ["Approved", "Rejected"]
     html = theme.style_status_column(frame).to_html()
     assert theme.APPROVED_TINT.lower() in html.lower()
     assert theme.REJECTED_TINT.lower() in html.lower()
 
 
-def test_policy_checks_use_tick_and_cross() -> None:
+def test_policy_checks_use_passed_and_failed_words() -> None:
     rows = pd.DataFrame(
-        {"Check": ["A", "B"], "Result": ["Pass", "Fail"], "Details": ["ok", "<bad>"]}
+        {
+            "Check": ["A", "B", "C"],
+            "Result": ["Pass", "Fail", "Advisory"],
+            "Details": ["ok", "<bad>", "note"],
+        }
     )
     out = theme.policy_checks_html(rows)
-    assert "ll-check-pass" in out and "✓" in out and "ll-check-fail" in out and "✗" in out
+    assert '<span class="ll-check-status">Passed</span>' in out and "ll-check-pass" in out
+    assert '<span class="ll-check-status">Failed</span>' in out and "ll-check-fail" in out
+    assert '<span class="ll-check-status">Advisory</span>' in out and "ll-check-advisory" in out
     assert "&lt;bad&gt;" in out  # escaped
 
 
@@ -127,3 +134,5 @@ def test_every_page_renders_with_theme(app_path, artifact, page) -> None:
     assert not at.exception, at.exception
     html = " ".join(m.value for m in at.markdown)
     assert "ll-header" in html and "LoanLens" in html
+    assert "ll-tagline" not in html and "ll-logo" not in html
+    assert "pre-eligibility, in plain language" not in html  # tagline removed

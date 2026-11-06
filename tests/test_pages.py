@@ -122,6 +122,7 @@ def test_about_page_content(app_path, artifact) -> None:
     at = _run(app_path, "pages/4_About.py")
     assert not at.exception
     assert any("Approval, not default" in w.value for w in at.warning)
+    assert any("pre-screening and decision-support prototype" in c.value for c in at.caption)
     md = " ".join(m.value for m in at.markdown)
     assert "Model Card" in md and "does not predict default" in md
     assert "public, synthetic Kaggle data" in md

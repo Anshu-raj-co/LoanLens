@@ -16,7 +16,7 @@ from loanlens.presentation import (
 
 MODEL_CARD = PROJECT_ROOT / "reports" / "model_card.md"
 
-setup_page("About LoanLens", "ℹ️")
+setup_page("About LoanLens")
 policy = get_policy()
 
 st.warning(
