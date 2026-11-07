@@ -29,7 +29,7 @@ from typing import Any, BinaryIO
 import numpy as np
 import pandas as pd
 
-from loanlens import audit, cleaning, explain, jobs, storage
+from loanlens import analytics, audit, cleaning, explain, jobs, storage
 from loanlens import model as model_mod
 from loanlens.audit import API, BATCH, UI, AuditFilters
 from loanlens.auth import APPLICANT, MANAGER, Principal, verify_principal
@@ -394,15 +394,39 @@ def training_data(principal: Principal | None) -> pd.DataFrame | None:
     return _training_data(str(path), path.stat().st_mtime).copy()
 
 
+def analytics_data(principal: Principal | None) -> analytics.AnalyticsData | None:
+    """Approval tables for the Analytics charts (managers only).
+
+    From the cleaned training data when it is present, otherwise from the committed
+    aggregates file (fresh clone, Docker, hosted). None when neither exists.
+
+    Raises:
+        AggregatesError: the aggregates file exists but cannot be used.
+    """
+    df = training_data(principal)
+    if df is not None:
+        return analytics.from_frame(df)
+    content = analytics.load(analytics.AGGREGATES_PATH)
+    return None if content is None else analytics.from_aggregates(content)
+
+
 _importance: dict[tuple[str, str, float], pd.Series] = {}
 
 
 def feature_importance(principal: Principal | None, artifact: dict[str, Any]) -> pd.Series | None:
-    """Mean absolute SHAP share per feature on the training data (managers only)."""
+    """Mean absolute SHAP share per feature on the training data (managers only).
+
+    Without the training data, the shares stored in the aggregates file are used if they
+    were computed for this model; otherwise None.
+    """
     verify_principal(principal, MANAGER)
     path = Path(cleaning.PROCESSED_PATH)
     if not path.exists():
-        return None
+        try:
+            content = analytics.load(analytics.AGGREGATES_PATH)
+        except analytics.AggregatesError:
+            return None
+        return None if content is None else analytics.importance_from_aggregates(content, artifact)
     key = (str(artifact.get("version")), str(artifact.get("trained_at")), path.stat().st_mtime)
     if key not in _importance:
         frame = _training_data(str(path), path.stat().st_mtime)

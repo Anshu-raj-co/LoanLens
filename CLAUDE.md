@@ -92,25 +92,27 @@ UI rules: white background, blue brand colour; every colour lives in `src/loanle
 Existing (v1.0):
 ```
 CLAUDE.md, README.md, PROJECT_EXPLAINED.md, USER_GUIDE.md
-requirements.txt, requirements-dev.txt, pyproject.toml
+requirements.txt (runtime), requirements-dev.txt (adds -e ., tests, tools), constraints.txt, pyproject.toml
+Dockerfile, docker-compose.yml, .dockerignore
 config/policies/ personal.yaml (default), home.yaml, vehicle.yaml
 .streamlit/config.toml
 alembic.ini, .env.example
-data/raw/ (not committed), data/processed/ (not committed)
+data/raw/ (not committed), data/processed/ (not committed), data/hosted/analytics_aggregates.json (committed aggregates)
 models/ registry.json plus versioned artifacts (loanlens_model_1.0.0.joblib is active and committed)
 notebooks/ 01_audit, 02_eda, 03_modelling, 04_benchmark_bank_loan_data
 src/loanlens/ schema, cleaning, features, rules, model, registry, explain, decision,
               batch, storage, presentation, formatting, theme, charts,
               auth/ (service, passwords, tokens, settings, cli), config, examples,
               services (protected service layer), audit, api/ (FastAPI app, schemas, settings, rate limiter),
-              db/ (engine, models, Alembic migrations in db/migrations/)
+              db/ (engine, models, Alembic migrations in db/migrations/, python -m loanlens.db),
+              pipeline, jobs, worker, synthetic, analytics, hosted, healthcheck
 app/ Home.py, ui_common.py, pages/
 reports/ model_card, benchmark, rules_vs_labels, example_decisions,
          progress, decisions_log, screenshots/
-scripts/ example_decisions.py, make_batch_fixture.py
+scripts/ example_decisions.py, make_batch_fixture.py, benchmark_batch.py, build_hosted_assets.py
 tests/ (pytest suite, fixtures/)
 ```
-Planned for v2.0 (create only when the milestone builds them): `scripts/build_hosted_assets.py`, Dockerfile, docker-compose.yml, `.dockerignore`. (Already built in M1: `src/loanlens/db/`, `src/loanlens/registry.py`, `config/policies/`, `models/registry.json`, Alembic migrations, `.env.example`. Built in M2: `src/loanlens/auth/`, the Sign in, Users and Account pages, Alembic revision `0002_auth`. Built in M3: `src/loanlens/services.py`, `src/loanlens/audit.py`, `src/loanlens/api/`, the My History and Audit pages, Alembic revision `0003_audit`. Built in M4: `src/loanlens/pipeline.py`, `src/loanlens/jobs.py`, `src/loanlens/worker.py`, `src/loanlens/synthetic.py`, Alembic revision `0004_batch_jobs`, `scripts/benchmark_batch.py`, `tests/load/locustfile.py`, `reports/performance.md`, `reports/load_test.md`.)
+All v2.0 files now exist. (Built in M1: `src/loanlens/db/`, `src/loanlens/registry.py`, `config/policies/`, `models/registry.json`, Alembic migrations, `.env.example`. Built in M2: `src/loanlens/auth/`, the Sign in, Users and Account pages, Alembic revision `0002_auth`. Built in M3: `src/loanlens/services.py`, `src/loanlens/audit.py`, `src/loanlens/api/`, the My History and Audit pages, Alembic revision `0003_audit`. Built in M4: `src/loanlens/pipeline.py`, `src/loanlens/jobs.py`, `src/loanlens/worker.py`, `src/loanlens/synthetic.py`, Alembic revision `0004_batch_jobs`, `scripts/benchmark_batch.py`, `tests/load/locustfile.py`, `reports/performance.md`, `reports/load_test.md`. Built in M5: `scripts/build_hosted_assets.py`, `data/hosted/analytics_aggregates.json`, `src/loanlens/analytics.py`, `hosted.py`, `healthcheck.py`, `db/__main__.py`, Dockerfile, docker-compose.yml, `.dockerignore`, `constraints.txt`.)
 
 ## 9. Modelling rules (as built, do not change without being asked)
 
@@ -139,6 +141,8 @@ After M2: 499 tests passing, 3 PostgreSQL tests skipped unless LOANLENS_TEST_POS
 After M3: 655 tests passing, 8 skipped (7 PostgreSQL tests unless LOANLENS_TEST_POSTGRES_URL is set, 1 PostgreSQL-only check on SQLite), 99% coverage, ruff clean. After the M3 logging fix (2026-11-06): 668 passed and 1 skipped with LOANLENS_TEST_POSTGRES_URL set (all 9 PostgreSQL tests ran and passed against PostgreSQL 16.15), 659 passed and 10 skipped without it, 99% coverage, ruff clean.
 
 After M4: 746 tests passing and 2 skipped with LOANLENS_TEST_POSTGRES_URL set (all 11 PostgreSQL tests ran and passed, including job claiming with SKIP LOCKED); 735 passing and 13 skipped without it; 98% coverage, ruff clean.
+
+After M5 (v2.0): 790 tests passing and 2 skipped with LOANLENS_TEST_POSTGRES_URL set (all 11 PostgreSQL tests ran and passed); 779 passing and 13 skipped without it; 759 passing and 33 skipped on a fresh clone without data or PostgreSQL; 98% coverage, ruff clean.
 
 v2.0: see section 15. A milestone is done only when ruff is clean, all tests pass, the example decisions are unchanged under the default personal profile, docs are updated and the work is committed.
 
@@ -174,11 +178,11 @@ Goal: turn the prototype into a platform that can be demonstrated as deployable 
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M1 | Database layer (SQLAlchemy, Alembic, PostgreSQL-ready); versioned policy profiles (personal, home, vehicle) with content hashes; model registry with versions, hashes and activation | Done (commit 199b235; 376 tests passed, 3 PostgreSQL tests skipped because no PostgreSQL server was available, 98% coverage; example decisions unchanged) |
+| M1 | Database layer (SQLAlchemy, Alembic, PostgreSQL-ready); versioned policy profiles (personal, home, vehicle) with content hashes; model registry with versions, hashes and activation | Done (commit "Milestone 1: database layer, policy profiles, model registry"; 376 tests passed, 3 PostgreSQL tests skipped because no PostgreSQL server was available, 98% coverage; example decisions unchanged) |
 | M2 | Authentication: applicant and manager roles, sign in and sign up, lockout, JWT sessions, account page, user management, remove the old shared password | Done (commit "Milestone 2: authentication and roles"; 499 tests passed, 3 PostgreSQL tests skipped, 99% coverage; example decisions unchanged) |
 | M3 | Append-only decision audit trail (database triggers block update and delete), applicant history page, manager audit page, REST API under /v1 with health endpoints and OpenAPI docs | Done (commit "Milestone 3: audit trail and REST API"; 655 tests passed, 8 skipped, 99% coverage; example decisions unchanged). PostgreSQL verified on 2026-11-06 after the fix "migrations no longer reset logging": all 9 PostgreSQL tests (database layer, audit triggers including TRUNCATE, migration logging) ran and passed against a disposable PostgreSQL 16.15 database; full suite 668 passed, 1 skipped (the SQLite-only TRUNCATE case) |
 | M4 | Chunked, memory-safe batch pipeline; Parquet; background jobs with an embedded or external worker; measured benchmarks at 100k, 500k and 1M rows (reports/performance.md); load test (reports/load_test.md) | Done (commit "Milestone 4: batch jobs, benchmarks, load test"; 746 tests passed and 2 skipped with PostgreSQL 16.15, all 11 PostgreSQL tests run and passed including two workers never claiming the same job with SKIP LOCKED; 735 passed and 13 skipped without it; 98% coverage; example decisions unchanged. Measured 2026-11-06 on an i7-11800H laptop: 1,000,000 rows in 663.7 s on PostgreSQL and 833.5 s on SQLite with every row audited (525.9 s and 633.3 s without), peak memory 457 to 527 MB at every size; API with 1 uvicorn worker levels off at about 18 to 23 scores/s, with 4 workers on PostgreSQL 81 scores/s at 100 users, p50 93 ms, p95 380 ms) |
-| M5 | Hosted-ready assets (no data folder needed), Docker and docker-compose, deployment docs, final documentation and screenshots, secret scan, release v2.0 and push | Not started |
+| M5 | Hosted-ready assets (no data folder needed), Docker and docker-compose, deployment docs, final documentation and screenshots, secret scan, release v2.0 and push | Done (commit "Milestone 5: hosted-ready assets, Docker, deployment, release v2.0", tag v2.0; 790 tests passed and 2 skipped with PostgreSQL 16.15, all 11 PostgreSQL tests run and passed; 779 passed and 13 skipped without it; 98% coverage; example decisions unchanged. Docker compose actually run on 2026-11-07 (Docker 29.6.2): all services healthy, manager created with docker compose run, sign-in through the API and the app, jobs from both run by the worker service with results identical to the expected output, two workers processed each of four jobs once; everything removed afterwards. Hosted memory measured on 2026-11-07: Streamlit with its embedded worker peaked at 503 MB on a 200,000-row file with 5,000-row chunks, so the hosted cap is 200,000 rows and 50 MB. Fresh clone verified outside the project: 759 passed, 33 skipped. Deployment to a public host is left to the owner) |
 
 Target architecture: Streamlit UI, FastAPI API and a worker all call one shared service layer and one decision core. The database is SQLite locally and PostgreSQL in Docker or hosted. Streamlit calls the service layer directly (documented choice); the API serves other systems.
 
@@ -188,8 +192,8 @@ Roles and data:
 - Stored per user: email, password hash, role, timestamps, a separate random audit reference. Decision records store the model input fields, outcome, reasons, versions and the audit reference, never email or name. Deleting an account removes the user row so remaining records can no longer be linked to a person.
 - Signed-in applicant checks are saved to their history and the audit trail. This replaces the v1.0 rule that customer mode stores nothing; all notices and docs must say so accurately.
 
-Known limitations to state honestly: no email verification, no self-service password reset (a manager resets it), the Streamlit session ends on page refresh, policy profiles share one trained model, the data is synthetic, every threshold is an illustrative placeholder, and Docker or PostgreSQL results are only claimed if they were actually run.
+Known limitations to state honestly: no email verification, no self-service password reset (a manager resets it), the Streamlit session ends on page refresh, policy profiles share one trained model, the data is synthetic, every threshold is an illustrative placeholder, and Docker or PostgreSQL results are only claimed if they were actually run (both were run on 2026-11-07; a public host deployment has not been done).
 
 Deployment (after M5, done by the owner): a free host such as Streamlit Community Cloud runs only the Streamlit app, has about 1 GB of memory, sleeps after inactivity, and needs an external PostgreSQL database for accounts. Set LOANLENS_HOSTED=1, secrets and a lower, measured upload-row cap. The API and worker are demonstrated through Docker locally or on a Docker-capable host. Never use real applicant data on a public host.
 
-Release history: v1.0 tagged and pushed to https://github.com/Anshu-raj-co/LoanLens . v2.0 will be tagged and pushed at the end of M5.
+Release history: v1.0 tagged and pushed to https://github.com/Anshu-raj-co/LoanLens . v2.0 tagged at the end of M5 (2026-11-07).

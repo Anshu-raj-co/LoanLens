@@ -238,12 +238,24 @@ class Worker:
     def stopped(self) -> bool:
         return self._stop.is_set()
 
+    def _heartbeat(self, finished: threading.Event) -> None:
+        """Report this worker as alive every poll interval, also while a long job runs."""
+        while not finished.wait(self.settings.poll_seconds):
+            try:
+                jobs.touch_worker(self.url, self.id, self.kind)
+            except Exception:  # noqa: BLE001 - a missed heartbeat is retried next time
+                pass
+
     def run(self, once: bool = False) -> int:
         """Process jobs until stopped (or, with ``once``, until the queue is empty)."""
         done = 0
         last_check = 0.0
+        finished = threading.Event()
+        beat = threading.Thread(target=self._heartbeat, args=(finished,),
+                                name="loanlens-worker-heartbeat", daemon=True)  # fmt: skip
         try:
             jobs.touch_worker(self.url, self.id, self.kind)
+            beat.start()
             startup(self.url, self.settings)
             while not self._stop.is_set():
                 jobs.touch_worker(self.url, self.id, self.kind)
@@ -262,6 +274,9 @@ class Worker:
         except DatabaseError:
             logger.error("worker_stopped", extra={"fields": {"reason": "database_unavailable"}})
         finally:
+            finished.set()
+            if beat.is_alive():
+                beat.join(5)
             try:
                 jobs.remove_worker(self.url, self.id)
             except Exception:  # noqa: BLE001

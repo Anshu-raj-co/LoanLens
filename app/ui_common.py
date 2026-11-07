@@ -8,18 +8,30 @@ All account logic is in :mod:`loanlens.auth`.
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
-from loanlens import auth, registry
-from loanlens import model as model_mod
-from loanlens.auth import settings as auth_settings
-from loanlens.auth.service import DATABASE_MESSAGE, SESSION_ENDED
-from loanlens.config import Policy, load_policy
-from loanlens.presentation import DISCLAIMER, PROTOTYPE_NOTICE
-from loanlens.theme import css_block, header_html
+# The app also runs from a plain clone without installing the package (for example on a
+# hosted platform that only installs requirements.txt): put src/ on the import path then.
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    try:
+        import loanlens  # noqa: F401 - installed (normal, editable or in Docker)
+    except ImportError:
+        sys.path.insert(0, str(_SRC))
+
+from loanlens import auth, hosted, registry  # noqa: E402
+from loanlens import model as model_mod  # noqa: E402
+from loanlens.auth import settings as auth_settings  # noqa: E402
+from loanlens.auth.service import DATABASE_MESSAGE, SESSION_ENDED  # noqa: E402
+from loanlens.config import Policy, load_policy  # noqa: E402
+from loanlens.presentation import DISCLAIMER, PROTOTYPE_NOTICE  # noqa: E402
+from loanlens.theme import css_block, header_html  # noqa: E402
 
 APP_NAME = "LoanLens"
 SIGN_IN_PAGE = "pages/0_Sign_In.py"
@@ -42,7 +54,7 @@ def setup_page(title: str) -> None:
     st.set_page_config(page_title=f"{APP_NAME} | {title}", layout="wide")
     st.markdown(css_block(), unsafe_allow_html=True)
     st.markdown(header_html(APP_NAME), unsafe_allow_html=True)
-    ephemeral = _check_configuration()
+    ephemeral, warnings = _check_configuration()
     principal = _validate_session()
     with st.sidebar:
         st.markdown(f"### {APP_NAME}")
@@ -51,14 +63,31 @@ def setup_page(title: str) -> None:
         _sidebar_account(principal)
         if ephemeral:
             st.warning(auth_settings.EPHEMERAL_WARNING)
+        for warning in warnings:
+            st.warning(warning)
     st.title(title)
 
 
-def _check_configuration() -> bool:
-    """Stop with a clear message on a configuration error; True if the key is temporary."""
+def _streamlit_secrets() -> dict[str, Any]:
+    """Top-level Streamlit secrets (hosted platforms), or nothing when none are configured."""
+    try:
+        if not st.secrets.load_if_toml_exists():  # no secrets file: the normal local case
+            return {}
+        return {name: st.secrets[name] for name in st.secrets}
+    except Exception:  # noqa: BLE001 - a malformed secrets file is ignored here
+        return {}
+
+
+def _check_configuration() -> tuple[bool, list[str]]:
+    """Stop with a clear message on a configuration error.
+
+    Returns whether the signing key is temporary and any warnings for the sidebar.
+    """
+    hosted.apply_secrets(_streamlit_secrets(), os.environ)
     try:
         key = auth.signing_key()
         auth.load_settings()
+        warnings = hosted.check_settings()
     except auth.ConfigurationError as exc:
         st.error(f"LoanLens cannot start. {exc}")
         st.stop()
@@ -67,7 +96,7 @@ def _check_configuration() -> bool:
         auth.bootstrap_from_env()
     except Exception:  # noqa: BLE001 - a database problem is reported when it is used
         pass
-    return key.ephemeral
+    return key.ephemeral, warnings
 
 
 def _clear_session() -> None:

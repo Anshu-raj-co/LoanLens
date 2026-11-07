@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 from ui_common import footer, friendly_failure, get_policy, require_user, setup_page
 
-from loanlens import auth, batch, jobs, services, worker
+from loanlens import auth, batch, hosted, jobs, services, worker
 from loanlens.auth.settings import ConfigurationError
 from loanlens.config import DEFAULT_PROFILE, list_profiles
 from loanlens.db.engine import DatabaseError
@@ -51,6 +51,14 @@ def _stop_with(message: str) -> None:
 
 
 st.warning(f"**{PROTOTYPE_NOTICE}.** Results support pre-screening only.")
+if hosted.is_hosted():
+    st.warning(
+        "This is a hosted demonstration. Upload only synthetic or test data, never real "
+        f"applicant data. Here one job accepts at most {settings.max_rows:,} rows and "
+        f"{settings.max_upload_mb} MB, job files are kept in temporary storage and are lost "
+        "when the host restarts, and a restart interrupts a running job (it is marked failed "
+        "within about five minutes and can be submitted again)."
+    )
 st.caption(thresholds_note(policy))
 st.caption(
     "Each scored row is recorded in the decision audit trail: its model input fields, the "
@@ -72,7 +80,7 @@ except Exception:  # noqa: BLE001 - never a stack trace
 
 # ---- Template and upload -------------------------------------------------------------------
 st.subheader("1. Prepare your file")
-max_mb = int(st.get_option("server.maxUploadSize"))
+max_mb = min(int(st.get_option("server.maxUploadSize")), settings.max_upload_mb)
 st.markdown(
     f"Upload a CSV or Parquet file with one applicant per row, **up to {settings.max_rows:,} "
     f"rows and {max_mb} MB**. Required columns: "

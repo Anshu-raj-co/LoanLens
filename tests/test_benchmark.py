@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-
-import nbformat
+from typing import Any
 
 from loanlens.config import PROJECT_ROOT
 from loanlens.presentation import BENCHMARK_SUMMARY
@@ -13,9 +13,17 @@ NOTEBOOK = PROJECT_ROOT / "notebooks" / "04_benchmark_bank_loan_data.ipynb"
 REPORT = PROJECT_ROOT / "reports" / "benchmark.md"
 
 
+def _code_cells() -> list[dict[str, Any]]:
+    """The notebook's code cells, read as JSON (no notebook package needed)."""
+    nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    return [c for c in nb["cells"] if c["cell_type"] == "code"]
+
+
 def _code() -> str:
-    nb = nbformat.read(NOTEBOOK, as_version=4)
-    return "\n".join(c.source for c in nb.cells if c.cell_type == "code")
+    return "\n".join(
+        "".join(c["source"]) if isinstance(c["source"], list) else c["source"]
+        for c in _code_cells()
+    )
 
 
 def test_benchmark_notebook_never_touches_production_model() -> None:
@@ -33,9 +41,8 @@ def test_benchmark_notebook_excludes_sensitive_features() -> None:
 
 
 def test_benchmark_notebook_ran_without_errors() -> None:
-    nb = nbformat.read(NOTEBOOK, as_version=4)
-    outputs = [o for c in nb.cells if c.cell_type == "code" for o in c.outputs]
-    assert outputs and not any(o.output_type == "error" for o in outputs)
+    outputs = [o for c in _code_cells() for o in c.get("outputs", [])]
+    assert outputs and not any(o["output_type"] == "error" for o in outputs)
 
 
 def test_benchmark_report_covers_required_points() -> None:

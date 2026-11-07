@@ -1,0 +1,116 @@
+# LoanLens with PostgreSQL: database, one-shot migration, REST API, Streamlit app, worker.
+#
+#   cp .env.example .env        # then fill in POSTGRES_PASSWORD and LOANLENS_JWT_SECRET
+#   docker compose up --build -d
+#   docker compose run --rm api python -m loanlens.auth create-manager --email <address>
+#
+# App: http://127.0.0.1:8501  API docs: http://127.0.0.1:8000/docs
+# Stop: docker compose down    Reset everything (deletes the database and job files):
+# docker compose down --volumes
+#
+# Required settings have no defaults: compose stops with a message naming the missing one.
+# The database is not published on the host (other services reach it as db:5432).
+# Batch jobs are run by the worker service only (LOANLENS_EMBEDDED_WORKER=0 in the app and
+# the API); app, api and worker share the jobs volume at the same path, /data/jobs.
+
+name: loanlens
+
+x-database-url: &database-url "postgresql://loanlens:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}@db:5432/loanlens"
+
+x-loanlens-env: &loanlens-env
+  DATABASE_URL: *database-url
+  LOANLENS_JWT_SECRET: ${LOANLENS_JWT_SECRET:?Set LOANLENS_JWT_SECRET in .env (see .env.example)}
+  LOANLENS_ENV: production
+  LOANLENS_JOBS_DIR: /data/jobs
+  LOANLENS_EMBEDDED_WORKER: "0"
+  # Optional settings, passed through from .env when set (empty means the default)
+  LOANLENS_MODEL_VERSION: ${LOANLENS_MODEL_VERSION:-}
+  LOANLENS_SESSION_MINUTES: ${LOANLENS_SESSION_MINUTES:-}
+  LOANLENS_LOCKOUT_ATTEMPTS: ${LOANLENS_LOCKOUT_ATTEMPTS:-}
+  LOANLENS_LOCKOUT_MINUTES: ${LOANLENS_LOCKOUT_MINUTES:-}
+  LOANLENS_BOOTSTRAP_MANAGER_EMAIL: ${LOANLENS_BOOTSTRAP_MANAGER_EMAIL:-}
+  LOANLENS_BOOTSTRAP_MANAGER_PASSWORD: ${LOANLENS_BOOTSTRAP_MANAGER_PASSWORD:-}
+  LOANLENS_API_MAX_BATCH: ${LOANLENS_API_MAX_BATCH:-}
+  LOANLENS_API_CORS_ORIGINS: ${LOANLENS_API_CORS_ORIGINS:-}
+  LOANLENS_API_AUTH_LIMIT_PER_CLIENT: ${LOANLENS_API_AUTH_LIMIT_PER_CLIENT:-}
+  LOANLENS_API_AUTH_LIMIT_PER_ACCOUNT: ${LOANLENS_API_AUTH_LIMIT_PER_ACCOUNT:-}
+  LOANLENS_API_AUTH_WINDOW_SECONDS: ${LOANLENS_API_AUTH_WINDOW_SECONDS:-}
+  LOANLENS_JOB_RETENTION_DAYS: ${LOANLENS_JOB_RETENTION_DAYS:-}
+  LOANLENS_JOB_CHUNK_SIZE: ${LOANLENS_JOB_CHUNK_SIZE:-}
+  LOANLENS_JOB_MAX_ROWS: ${LOANLENS_JOB_MAX_ROWS:-}
+  LOANLENS_JOB_MAX_UPLOAD_MB: ${LOANLENS_JOB_MAX_UPLOAD_MB:-}
+  LOANLENS_WORKER_POLL_SECONDS: ${LOANLENS_WORKER_POLL_SECONDS:-}
+  LOANLENS_JOB_STALE_SECONDS: ${LOANLENS_JOB_STALE_SECONDS:-}
+
+x-loanlens-service: &loanlens-service
+  image: loanlens:2.0.0
+  restart: unless-stopped
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: loanlens
+      POSTGRES_DB: loanlens
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loanlens -d loanlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build: .
+    image: loanlens:2.0.0
+    command: ["python", "-m", "loanlens.db", "upgrade"]
+    environment: *loanlens-env
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *loanlens-service
+    # --no-access-log: the API writes its own JSON request log without client addresses
+    command: ["uvicorn", "loanlens.api.app:app", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "${LOANLENS_API_WORKERS:-1}", "--no-access-log"]
+    environment:
+      <<: *loanlens-env
+      LOANLENS_SERVICE: api
+    ports:
+      - "127.0.0.1:${LOANLENS_API_PUBLISH_PORT:-8000}:8000"
+    volumes:
+      - jobs:/data/jobs
+
+  app:
+    <<: *loanlens-service
+    command: ["streamlit", "run", "app/Home.py", "--server.address", "0.0.0.0",
+              "--server.port", "8501"]
+    environment:
+      <<: *loanlens-env
+      LOANLENS_SERVICE: app
+    ports:
+      - "127.0.0.1:${LOANLENS_APP_PUBLISH_PORT:-8501}:8501"
+    volumes:
+      - jobs:/data/jobs
+
+  worker:
+    <<: *loanlens-service
+    command: ["python", "-m", "loanlens.worker"]
+    environment:
+      <<: *loanlens-env
+      LOANLENS_SERVICE: worker
+    volumes:
+      - jobs:/data/jobs
+
+volumes:
+  pgdata:
+  jobs:

@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 from ui_common import footer, get_model, get_policy, require_user, setup_page
 
-from loanlens import auth, charts, services
+from loanlens import analytics, auth, charts, services
 from loanlens.db.engine import DatabaseError
 
 setup_page("Analytics")
@@ -14,36 +14,52 @@ principal = require_user(auth.MANAGER)
 policy = get_policy()
 artifact = get_model()
 
+data_problem = None
 try:
     with st.spinner("Loading the training data..."):
-        df = services.training_data(principal)
+        data = services.analytics_data(principal)
 except auth.AuthorisationError as exc:
     st.error(f"{exc} Open Sign in in the sidebar.")
     footer()
     st.stop()
+except analytics.AggregatesError as exc:
+    data, data_problem = None, str(exc)
 st.caption(
     "Charts 1 to 3 describe approval decisions in the **public synthetic training data**. "
     "They are not results from any real lender and say nothing about repayment or default."
 )
+if data is not None and data.source == analytics.AGGREGATES:
+    st.caption(
+        f"The data folder is not present here, so these charts use stored aggregates of the "
+        f"same {data.rows:,} training rows (counts and approval rates per group only)."
+    )
 
 tab_data, tab_model, tab_batch = st.tabs(
     ["Approval patterns", "What drives the model", "Latest batch"]
 )
 
 with tab_data:
-    if df is None:
+    if data is None:
         st.error(
-            "The cleaned training data was not found. Ask the administrator to run "
-            "`python -m loanlens.cleaning`."
+            data_problem
+            or "Neither the cleaned training data nor the stored aggregates were found. Ask "
+            "the administrator to run `python -m loanlens.cleaning`, or "
+            "`python scripts/build_hosted_assets.py` where the data is available."
         )
     else:
-        st.plotly_chart(charts.approval_by_cibil_band(df), use_container_width=True, theme=None)
+        st.plotly_chart(
+            charts.approval_rate_chart(
+                data.by_cibil_band, "Approval rate by CIBIL band", "CIBIL band"
+            ),
+            use_container_width=True,
+            theme=None,
+        )
         st.caption("CIBIL dominates: approval is near-certain above 550 and rare at or below it.")
         left, right = st.columns(2)
         with left:
             st.plotly_chart(
-                charts.approval_rate_bar(
-                    df, "loan_term", "Approval rate by loan term", "Loan term (years)"
+                charts.approval_rate_chart(
+                    data.by_loan_term, "Approval rate by loan term", "Loan term (years)"
                 ),
                 use_container_width=True,
                 theme=None,
@@ -54,8 +70,8 @@ with tab_data:
             )
         with right:
             st.plotly_chart(
-                charts.approval_by_quantile_band(
-                    df, "loan_amount", q=5, title="Approval rate by loan size (quintiles, Rs)"
+                charts.approval_rate_chart(
+                    data.by_loan_size, "Approval rate by loan size (quintiles, Rs)", "loan_amount"
                 ),
                 use_container_width=True,
                 theme=None,
@@ -66,7 +82,10 @@ with tab_model:
     with st.spinner("Working out what drives the model..."):
         importance = services.feature_importance(principal, artifact)
     if importance is None:
-        st.error("Feature importance needs the cleaned training data (see the first tab).")
+        st.error(
+            "Feature importance needs the cleaned training data, or stored aggregates built "
+            "for this model version (see the first tab)."
+        )
     else:
         st.plotly_chart(
             charts.feature_importance_bar(

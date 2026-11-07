@@ -13,14 +13,43 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+from collections.abc import Mapping
 from functools import cached_property, lru_cache
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_HOME = "LOANLENS_HOME"
+_MARKER = Path("config") / "policies"
+
+
+def find_project_root(
+    environ: Mapping[str, str] | None = None, source: Path | None = None, cwd: Path | None = None
+) -> Path:
+    """The folder that holds ``config/``, ``models/`` and ``reports/``.
+
+    In order: ``LOANLENS_HOME`` if set; the source checkout this module lives in (normal
+    and editable installs); the current directory when it holds ``config/policies``
+    (a non-editable install started from a clone, as on hosted platforms); otherwise the
+    source checkout path, so error messages still name a sensible location.
+    """
+    environ = os.environ if environ is None else environ
+    home = environ.get(ENV_HOME, "").strip()
+    if home:
+        return Path(home).expanduser().resolve()
+    checkout = (source or Path(__file__)).resolve().parents[2]
+    if (checkout / _MARKER).is_dir():
+        return checkout
+    here = (cwd or Path.cwd()).resolve()
+    if (here / _MARKER).is_dir():
+        return here
+    return checkout
+
+
+PROJECT_ROOT = find_project_root()
 PROFILES_DIR = PROJECT_ROOT / "config" / "policies"
 DEFAULT_PROFILE = "personal"
 POLICY_PATH = PROFILES_DIR / f"{DEFAULT_PROFILE}.yaml"  # the default profile's file

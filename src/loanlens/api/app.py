@@ -25,7 +25,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from loanlens import auth, jobs, registry, services, storage, worker
+from loanlens import auth, hosted, jobs, registry, services, storage, worker
 from loanlens import model as model_mod
 from loanlens.api.ratelimit import RateLimiter
 from loanlens.api.schemas import (
@@ -295,6 +295,8 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI):
         auth.signing_key()  # refuses to start in production or hosted mode without a secret
         auth.load_settings()
+        for warning in hosted.check_settings():
+            logger.warning(warning)
         job_settings = jobs.load_job_settings()
         try:
             auth.bootstrap_from_env()
@@ -310,7 +312,7 @@ def create_app(settings: ApiSettings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="LoanLens API",
-        version="1.0.0",
+        version="2.0.0",
         summary="Explainable loan pre-eligibility (prototype; approval decision, not default).",
         description=(
             "Independent proof of concept. Predicts the approval decision recorded in a public "

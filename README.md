@@ -17,7 +17,10 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 - [Results at a glance](#results-at-a-glance)
 - [Screenshots](#screenshots)
 - [Documentation](#documentation)
-- [Quick start (fresh clone)](#quick-start-fresh-clone)
+- [Architecture](#architecture)
+- [Quick start (local)](#quick-start-local)
+- [Docker](#docker)
+- [Deploy (hosted demo)](#deploy-hosted-demo)
 - [Data](#data)
 - [The pages](#the-pages)
 - [How a decision is made](#how-a-decision-is-made)
@@ -26,6 +29,7 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 - [REST API](#rest-api)
 - [Batch jobs](#batch-jobs)
 - [Performance](#performance)
+- [What data is stored (privacy)](#what-data-is-stored-privacy)
 - [Security notes](#security-notes)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -40,7 +44,7 @@ Author: Anshu Raj (GitHub: Anshu-raj-co)
 | **Chosen model** | XGBoost with monotone constraints (a higher CIBIL never lowers, a bigger loan never raises the score) and isotonic calibration, on 5 features. Chosen as the simplest model within about 1% of the best; the constraints cost 0.4 ROC-AUC points. |
 | **Cross-validation** (stratified 5-fold, seed 42) | ROC-AUC 0.9942, PR-AUC 0.9946, precision 0.9527, recall 0.9759, F1 0.9639, accuracy 0.9546 |
 | **Leakage check** | Shuffled labels give ROC-AUC 0.499 (chance). CIBIL alone reaches 0.960; without CIBIL the model drops to 0.584. |
-| **Tests** | 746 passing and 2 skipped with a PostgreSQL test database (both skips are PostgreSQL-only checks in their SQLite variant); 735 passing and 13 skipped without one (`pytest`), 98% coverage of `src/loanlens`, `ruff` clean |
+| **Tests** | 790 passing and 2 skipped with a PostgreSQL test database (both skips are PostgreSQL-only checks in their SQLite variant); 779 passing and 13 skipped without one (`pytest`), 98% coverage of `src/loanlens`, `ruff` clean |
 | **Batch speed** (measured) | 1,000,000 synthetic rows as a background job in 11.1 min on PostgreSQL and 13.9 min on SQLite with every row audited (8.8 and 10.6 min without auditing), with peak memory between 457 and 527 MB at every file size from 100,000 to 1,000,000 rows. Laptop, 2026-11-06; see [reports/performance.md](reports/performance.md) |
 | **Benchmark** | In the primary dataset, **CIBIL dominates** (about 99% approved above 550, about 10% at or below). In `bank_loan_data.csv`, **a previous default dominates** and credit score alone had almost no effect (ROC-AUC 0.50). |
 
@@ -48,17 +52,19 @@ The scores are near-perfect because the synthetic label is close to a simple rul
 
 ## Screenshots
 
-All screenshots use the built-in hypothetical example applicants or the fully synthetic test file.
+Taken on 2026-11-07 against a throwaway database with temporary test accounts (deleted afterwards), using the built-in hypothetical example applicants, the fully synthetic 1,000-row test file and a synthetic 100,000-row file. No password or token is visible.
 
 | | |
 |---|---|
-| ![Home page](reports/screenshots/01_home.png) **Home:** purpose, the illustrative-thresholds notice and links to every page. | ![Eligibility form](reports/screenshots/02_eligibility_form.png) **Check My Eligibility:** the 8-field form with hints and Indian-grouped amounts. |
+| ![Home page](reports/screenshots/01_home.png) **Home:** purpose, the illustrative-thresholds notice and links to every page. | ![Sign in](reports/screenshots/09_sign_in.png) **Sign in:** two tabs, Sign in and Create account. |
+| ![Create account](reports/screenshots/15_create_account.png) **Create account:** applicants only, with the password rules and what is stored. | ![Eligibility form](reports/screenshots/02_eligibility_form.png) **Check My Eligibility:** loan type and the 8-field form with hints and Indian-grouped amounts. |
 | ![Approved result](reports/screenshots/03_eligibility_approved.png) **Approved:** green banner, likelihood band and the factors working in the applicant's favour. | ![Rejected result](reports/screenshots/08_eligibility_rejected.png) **Rejected:** red banner, the exact rule that failed, and what would likely change the result. |
-| ![Rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png) **Rejected + borderline:** CIBIL 540 is just below the minimum, so manual review is recommended. | ![Bulk Check](reports/screenshots/05_bulk_check.png) **Bulk Check:** 1,000-row synthetic upload with summary cards, the skipped-rows report and coloured status cells (taken before Milestone 4 moved Bulk Check to background jobs; to be retaken in Milestone 5). |
-| ![Analytics](reports/screenshots/06_analytics.png) **Analytics:** approval patterns in the training data, model drivers and the latest batch. | ![About](reports/screenshots/07_about.png) **About:** framing, metrics, current policy settings, borderline rules, benchmark and model card. |
-| ![Sign in](reports/screenshots/09_sign_in.png) **Sign in:** two tabs, Sign in and Create account (applicants only), with the password rules and what is stored. | ![Users](reports/screenshots/10_users.png) **Users (managers):** every account with role, status, created and last sign-in; create a manager, deactivate or reactivate, set a temporary password. |
-| ![My History](reports/screenshots/13_my_history.png) **My History:** an applicant's own checks with date, loan type, status, likelihood and reasons, and a CSV download. | ![Audit](reports/screenshots/14_audit.png) **Audit (managers):** every decision (here 980 batch rows and 3 form checks), filters, counts and CSV export. |
-| ![Account](reports/screenshots/11_account.png) **Account:** change password (required after a temporary password) and delete the account with a confirmation step. | ![Applicant blocked](reports/screenshots/12_applicant_blocked.png) **Access rules:** an applicant who opens Bulk Check sees a plain message instead of the page. |
+| ![Rejected and borderline result](reports/screenshots/04_eligibility_rejected_borderline.png) **Rejected + borderline:** CIBIL 540 is just below the minimum, so manual review is recommended. | ![My History](reports/screenshots/13_my_history.png) **My History:** an applicant's own checks with date, loan type, status, likelihood and reasons, and a CSV download. |
+| ![Bulk job running](reports/screenshots/05_bulk_job_running.png) **Bulk Check, job running:** a 100,000-row synthetic file in progress, with counts so far and a cancel button. | ![Bulk job completed](reports/screenshots/16_bulk_job_completed.png) **Bulk Check, job completed:** summary cards, top rejection reasons, downloads and a preview (the 1,000-row test file, 20 rows skipped with reasons). |
+| ![Analytics](reports/screenshots/06_analytics.png) **Analytics:** the latest batch; other tabs show approval patterns in the training data and model drivers. | ![Audit](reports/screenshots/14_audit.png) **Audit (managers):** every decision (here the two batches and three form checks), filters, counts and CSV export. |
+| ![Users](reports/screenshots/10_users.png) **Users (managers):** every account with role and status; create a manager, deactivate or reactivate, set a temporary password. | ![Account](reports/screenshots/11_account.png) **Account:** change password and delete the account with a confirmation step. |
+| ![About](reports/screenshots/07_about.png) **About:** framing, metrics, current policy settings, borderline rules, benchmark and model card. | ![Applicant blocked](reports/screenshots/12_applicant_blocked.png) **Access rules:** an applicant who opens Bulk Check sees a plain message instead of the page. |
+| ![API docs](reports/screenshots/17_api_docs.png) **REST API docs** at `/docs` (OpenAPI). | |
 
 ## Documentation
 
@@ -67,30 +73,47 @@ All screenshots use the built-in hypothetical example applicants or the fully sy
 - [reports/model_card.md](reports/model_card.md): data, metrics, calibration, leakage checks, constraints and limitations.
 - [reports/benchmark.md](reports/benchmark.md): comparison with the larger `bank_loan_data.csv` dataset.
 - [reports/decisions_log.md](reports/decisions_log.md): every assumption and placeholder, and the reasoning behind each decision.
+- [reports/performance.md](reports/performance.md) and [reports/load_test.md](reports/load_test.md): measured batch and API performance.
+- [reports/progress.md](reports/progress.md): what was done in each phase and milestone, with test results.
 
-## Quick start (fresh clone)
+## Architecture
+
+```mermaid
+flowchart LR
+    U1["Applicant or bank manager<br/>(browser)"] --> APP["Streamlit app<br/>app/ (layout only)"]
+    SYS["Other systems"] --> API["REST API<br/>FastAPI, /v1"]
+    APP --> SVC["Service layer<br/>services.py + auth/<br/>role checks, audit writes"]
+    API --> SVC
+    SVC --> CORE["Decision core<br/>decision.py: rules, model,<br/>reasons, what would change"]
+    SVC --> DB[("Database<br/>SQLite locally,<br/>PostgreSQL in Docker or hosted")]
+    SVC --> FILES["Private job files<br/>uploads, results, errors"]
+    WORKER["Batch worker<br/>python -m loanlens.worker<br/>(or a thread in the app)"] --> CORE
+    WORKER --> DB
+    WORKER --> FILES
+    CFG["config/policies/<br/>models/registry.json"] --> CORE
+```
+
+- **One decision core, one service layer.** The Streamlit app, the REST API and the batch worker all call the same service layer and the same decision core, so an applicant gets an identical result whichever way it is requested. Streamlit calls the service layer directly in the same process (a documented choice that keeps the app simple to host); the API serves other systems.
+- **Database:** accounts, the append-only audit trail, batch jobs and anonymised batch summaries. A local SQLite file by default; PostgreSQL in Docker and on a hosted platform. **SQLite is for local demos with one process; any deployment with several processes (API workers, a separate worker, several app instances) needs PostgreSQL.**
+- **Batch jobs** are queued in the database and processed in chunks by a worker: a separate process (`python -m loanlens.worker`, the `worker` service in Docker) or, when none is running, a background thread inside the app or the API.
+- **No data folder needed to run.** The registry, the active model artifact (about 0.4 MB) and a small file of Analytics aggregates (`data/hosted/analytics_aggregates.json`: counts and approval rates per group and the model's feature-importance shares, no rows) are committed, so the app, the API and the worker start from a fresh clone. The datasets are needed only to retrain the model, rerun the notebooks and run the data tests. `python scripts/build_hosted_assets.py` rebuilds the aggregates file (and `--check` says whether it is up to date).
+
+## Quick start (local)
 
 Requires **Python 3.11**. Windows commands are shown; on macOS/Linux use `python3.11 -m venv .venv` and `source .venv/bin/activate`.
 
-**1. Get the code and put the data in place.** Download the three CSV files listed under [Data](#data) and save them in `data/raw/` with exactly these names:
-
-```
-data/raw/loan_approval_dataset.csv   # primary: powers the app (required)
-data/raw/bank_loan_data.csv          # benchmark notebook only
-data/raw/loan_data.csv               # sanity check only
-```
-
-**2. Install and run:**
-
 ```bash
+git clone https://github.com/Anshu-raj-co/LoanLens.git
+cd LoanLens
 py -3.11 -m venv .venv               # create the virtual environment
 .venv\Scripts\activate               # activate it
-pip install -r requirements.txt      # pinned packages + LoanLens itself
-python -m loanlens.cleaning          # build the cleaned data used by the Analytics page and tests
-streamlit run app/Home.py            # start the app at http://localhost:8501
+pip install -r requirements-dev.txt  # pinned packages, LoanLens itself (editable), tests and tools
+streamlit run app/Home.py            # the app at http://localhost:8501 (SQLite file data/loanlens.sqlite)
 ```
 
-**3. Create the first bank manager** (applicants create their own accounts on the Sign in page):
+`requirements.txt` holds only what is needed to **run** the app, the API and the worker; it is what Docker and hosted platforms install. It does not install the `loanlens` package itself: the Streamlit app finds it in `src/` on its own, and `pip install .` (or the `-e .` line in `requirements-dev.txt`) makes it importable for the command-line tools. An installed package looks for `config/`, `models/` and `reports/` in `LOANLENS_HOME`, else in its source checkout, else in the current directory.
+
+**Create the first bank manager** (applicants create their own accounts on the Sign in page):
 
 ```bash
 python -m loanlens.auth create-manager --email you@example.com   # asks for the password twice
@@ -98,9 +121,92 @@ python -m loanlens.auth create-manager --email you@example.com   # asks for the 
 
 The password is typed at a hidden prompt, never on the command line. For a local run nothing else is needed: without `LOANLENS_JWT_SECRET` the app uses a temporary signing key and shows a warning (everyone is signed out when it restarts). Set `LOANLENS_JWT_SECRET` (at least 32 random characters) before sharing the app; see [Accounts and roles](#accounts-and-roles).
 
-The registered model (version 1.0.0, about 0.4 MB) and `models/registry.json` are committed, so no training is needed to use the app. `python -m loanlens.model` trains a **new** version (see [Model registry](#model-registry)); it also builds the cleaned data if it is missing. If no model is registered, every page shows a friendly message telling you to run that command; nothing crashes.
+**Optional, the API and a separate worker** (in two more terminals):
 
-The earlier fresh-clone verification in `reports/progress.md` predates the model registry and policy profiles (Milestone 1); it has not been repeated since.
+```bash
+uvicorn loanlens.api.app:app --port 8000   # REST API, docs at http://127.0.0.1:8000/docs
+python -m loanlens.worker                  # batch worker; without it the app runs jobs in a thread
+```
+
+**Optional, the datasets** (only for retraining, the notebooks and the data tests): download the three CSV files listed under [Data](#data) into `data/raw/` and run `python -m loanlens.cleaning`. Without them the Analytics page uses the committed aggregates and says so; every other page works the same. `python -m loanlens.model` trains a **new** model version (see [Model registry](#model-registry)).
+
+**Fresh-clone check (2026-11-07):** the repository was cloned into a temporary folder outside the project, a new Python 3.11.9 environment installed `requirements.txt` only (`pip check`: no broken requirements), and there was no `data/raw/` or `data/processed/`. The Streamlit app started **without installing the package**, every page opened for an applicant and a manager with no errors in the server log, Analytics drew its charts from the committed aggregates, and a 1,000-row job ran on the embedded worker. After `pip install --no-deps .` (non-editable) the API answered `/ready` (database and model ok), `/docs`, registration and scoring; `python -m loanlens.worker --once` and `python -m loanlens.db current` worked. With pytest added, the suite gave 759 passed and 33 skipped (tests that need the dataset or PostgreSQL), 0 failed. One test had needed `nbformat`, which moved to the development requirements; it now reads the notebook as JSON (fixed before the release).
+
+## Docker
+
+`Dockerfile` builds **one image** (multi-stage, `python:3.11-slim`, a non-root user with uid 10001, pinned dependencies, the package installed non-editably, a `HEALTHCHECK`) that runs as the API, the app or the worker depending on its command. No dataset enters it: `.dockerignore` is an allow-list. `docker-compose.yml` runs:
+
+| Service | What it does |
+|---|---|
+| `db` | PostgreSQL 16 with a named volume (`pgdata`) and a health check. Not published on the host. |
+| `migrate` | One-shot `python -m loanlens.db upgrade` (Alembic `upgrade head` with the migrations shipped inside the package) once `db` is healthy. |
+| `api` | `uvicorn` on port 8000, published on 127.0.0.1 only. |
+| `app` | Streamlit on port 8501, published on 127.0.0.1 only. |
+| `worker` | `python -m loanlens.worker`, the only service that runs batch jobs. |
+
+The app, the API and the worker share the `jobs` volume at the same path, `/data/jobs` (`LOANLENS_JOBS_DIR`), writable by the non-root user: uploads are written by the app or the API and read by the worker. Because the worker service runs the jobs, compose sets **`LOANLENS_EMBEDDED_WORKER=0`** for the app and the API. Every service runs with `LOANLENS_ENV=production`, which refuses a missing or weak `LOANLENS_JWT_SECRET`. Health checks: `/health` for the API, `/_stcore/health` for the app, and for a worker a recent heartbeat in the database from that container (`python -m loanlens.healthcheck`).
+
+**Start:**
+
+```bash
+cp .env.example .env     # then set the two required values, for example with:
+#   POSTGRES_PASSWORD     python -c "import secrets; print(secrets.token_hex(24))"   (letters and digits only)
+#   LOANLENS_JWT_SECRET   python -c "import secrets; print(secrets.token_urlsafe(48))"
+docker compose up --build -d
+docker compose ps        # wait until api, app and worker show "healthy"
+```
+
+`.env` is gitignored. If a required value is missing, compose stops before starting anything, with a message naming it, for example `required variable POSTGRES_PASSWORD is missing a value: Set POSTGRES_PASSWORD in .env (see .env.example)`. Then open the app at http://127.0.0.1:8501 and the API docs at http://127.0.0.1:8000/docs .
+
+**Create the first manager** (the password is asked twice at a hidden prompt):
+
+```bash
+docker compose run --rm api python -m loanlens.auth create-manager --email you@example.com
+```
+
+**More workers:** `docker compose up -d --scale worker=2`. Jobs are claimed with `SELECT ... FOR UPDATE SKIP LOCKED`, so each job is processed by exactly one worker.
+
+**Stop and reset:**
+
+```bash
+docker compose down              # stop and remove the containers; the database and job files are kept
+docker compose down --volumes    # also delete the database and every job file (a full reset)
+docker image rm loanlens:2.0.0   # remove the image
+```
+
+**Verified on 2026-11-07** on this Windows laptop with Docker 29.6.2 (Docker Desktop): `docker compose up --build` brought `db`, `migrate`, `api`, `app` and `worker` up, all health checks green (`migrate` reported revision `0004_batch_jobs`); a manager was created with `docker compose run`; sign-in worked through the API and the app; a 1,000-row synthetic job submitted through the API and another through the app were run by the worker service through the shared volume, and both downloaded results matched the expected output of the test file exactly (980 rows, the same statuses, probabilities and reasons). The 18 example decisions (six examples under three loan types) computed inside the container were identical to those on the host. With `--scale worker=2`, four jobs were split between the two workers and each was processed once (980 audit records per job). Every page opened without errors, and the logs had no errors. Everything created for the check (containers, volumes, image, build cache, `.env`) was removed afterwards.
+
+## Deploy (hosted demo)
+
+A free host such as **Streamlit Community Cloud** runs only the Streamlit app (no API, no separate worker), with about 1 GB of memory and a disk that is wiped whenever the app restarts. LoanLens has a hosted mode for this, switched on with `LOANLENS_HOSTED=1`.
+
+**Steps (Streamlit Community Cloud):**
+
+1. Create an external **PostgreSQL** database (any managed PostgreSQL service with a free tier works) and note its URL, `postgresql://<user>:<password>@<host>:5432/<database>`. It is required there: without it accounts, history and audit records live on the host's temporary disk and are lost on every restart (the app shows a warning saying so).
+2. On https://share.streamlit.io choose **Create app**, then this repository, branch **`main`**, main file path **`app/Home.py`**, and under *Advanced settings* **Python 3.11**.
+3. In *Advanced settings*, **Secrets**, paste (with your own values; never commit them):
+   ```toml
+   LOANLENS_HOSTED = "1"
+   DATABASE_URL = "postgresql://<user>:<password>@<host>:5432/<database>"
+   LOANLENS_JWT_SECRET = "<at least 32 random characters>"
+   LOANLENS_BOOTSTRAP_MANAGER_EMAIL = "<your email>"
+   LOANLENS_BOOTSTRAP_MANAGER_PASSWORD = "<a strong temporary password>"
+   ```
+   Generate the secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. LoanLens reads these from Streamlit secrets as well as from environment variables.
+4. Deploy. The platform installs `requirements.txt`; the app finds the `loanlens` package in `src/` by itself, and no data folder is needed. The database tables are created on first use.
+5. Sign in with the bootstrap manager, change the temporary password when asked, then **delete the two bootstrap secrets**.
+
+**What hosted mode does:** it refuses to start with a missing, short or obviously weak `LOANLENS_JWT_SECRET` (for example one containing "change" or "secret", or with fewer than 12 different characters) or with an incomplete or weak pair of bootstrap settings; it refuses `LOANLENS_BATCH_AUDIT=off`; it keeps job files in a temporary directory; and it uses smaller batch limits, shown on the Bulk Check page together with a note to upload only synthetic or test data.
+
+**Hosted batch settings, from a measurement:** chunks of **5,000 rows** (`LOANLENS_JOB_CHUNK_SIZE`), at most **200,000 rows** and **50 MB** per job (`LOANLENS_JOB_MAX_ROWS`, `LOANLENS_JOB_MAX_UPLOAD_MB`). On 2026-11-07, the Streamlit app in hosted mode with its embedded worker, a PostgreSQL database in a local container and these settings processed a 200,000-row synthetic file (13 MB) uploaded through the Bulk Check page, with every row audited, in 150.6 s; the **peak resident memory of the Streamlit process was 503 MB** (399 MB after sign-in with the model loaded, 63 MB at start). That is under the 700 MB budget set for a host with about 1 GB. Measured once, on the same laptop as the other figures (i7-11800H, Windows 11), so a host's own overhead is not included; the cap was not raised beyond the size that was measured.
+
+**What to expect on a free host:**
+- The app **sleeps after a period without visitors** and takes a while to wake up.
+- **A restart interrupts a running batch job.** The job is marked failed within about five minutes of the app running again and can be submitted again. **Job files** (uploads, results) **are lost on restart**, because the disk is temporary; download results soon after a job completes.
+- **Accounts, history and the audit trail need the external PostgreSQL database**; without it they are lost on restart.
+- Memory is limited (about 1 GB), hence the smaller batch limits.
+- Only the Streamlit app runs there. The REST API and the separate worker are demonstrated with Docker (above), locally or on a Docker-capable host.
+- **Never upload real applicant data to a public host.** Use the synthetic test file or your own made-up data.
 
 ## Data
 
@@ -121,8 +227,8 @@ Licences were read from Kaggle's dataset metadata; please check each page yourse
 | **Home** (public) | Purpose, the placeholder-thresholds notice, links to every page and a short "how a result is decided" summary. |
 | **Sign in** (public) | Two tabs: **Sign in**, and **Create account** for applicants. Manager accounts cannot be created here. |
 | **Check My Eligibility** (any signed-in user) | A **Loan type** selector (personal, home, vehicle) and an 8-field form with ranges, hints and Indian-grouped amounts (e.g. "= Rs 1,50,00,000"). Returns a green "Approved" or red "Rejected" banner with the likelihood (e.g. "96% - Very likely", labelled "model score on synthetic data - indicative only"), an amber "Borderline - manual review recommended" pill when relevant, reason cards, "what would likely change this", positive factors, warnings and the policy checks (each marked "Passed" or "Failed"). Each check is saved to the account's **history** and the **audit trail** (model inputs, result and versions; never an email or name). |
-| **Bulk Check** (bank managers) | Download the CSV template, upload a **CSV or Parquet** file of up to **1,000,000 rows and 200 MB**, pick the loan type and submit it as a **background job**. A progress bar follows the job (polled every two seconds, with a cancel button); the job list shows every job's status, counts and times. For a completed job: summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, downloads of the results (CSV and Parquet) and of the skipped rows (with spreadsheet row numbers and every problem), and a preview of the first 1,000 results. An optional `product` column picks each row's loan type (blank means the chosen one; an unknown value is a row problem). Every scored row is written to the **audit trail** (model inputs, result, versions and the manager's random reference; no names or applicant IDs), and an **anonymised summary** of the batch is saved for Analytics. See [Batch jobs](#batch-jobs). |
-| **Analytics** (bank managers) | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. |
+| **Bulk Check** (bank managers) | Download the CSV template, upload a **CSV or Parquet** file of up to **1,000,000 rows and 200 MB** (200,000 rows and 50 MB in hosted mode), pick the loan type and submit it as a **background job**. A progress bar follows the job (polled every two seconds, with a cancel button); the job list shows every job's status, counts and times. For a completed job: summary cards (total, approved, rejected, borderline, skipped, approval rate), top rejection reasons, downloads of the results (CSV and Parquet) and of the skipped rows (with spreadsheet row numbers and every problem), and a preview of the first 1,000 results. An optional `product` column picks each row's loan type (blank means the chosen one; an unknown value is a row problem). Every scored row is written to the **audit trail** (model inputs, result, versions and the manager's random reference; no names or applicant IDs), and an **anonymised summary** of the batch is saved for Analytics. See [Batch jobs](#batch-jobs). |
+| **Analytics** (bank managers) | Approval rate by CIBIL band, loan term and loan size in the training data; what drives the model (mean absolute SHAP share); and the latest batch summary. Without the data folder (fresh clone, Docker, hosted) the first two come from the committed aggregates file, and the page says so. |
 | **About** (public) | The framing, data source, the active model version and its metrics, every registered model version, every loan type's policy values side by side with the enforce settings, how the borderline flag works, the benchmark summary and the full model card. |
 | **Users** (bank managers) | Every account (email, role, status, created, last sign-in). Create another manager, deactivate or reactivate an account, set a temporary password. |
 | **My History** (any signed-in user) | Your own past checks (date, loan type, status, likelihood band, reasons) with a CSV download. Nobody else's records are ever shown. |
@@ -176,7 +282,7 @@ The app loads the active version, or the one named by `LOANLENS_MODEL_VERSION`, 
 
 ## Database
 
-Anonymised batch summaries are stored through SQLAlchemy 2. The database comes from the `DATABASE_URL` environment variable; without it LoanLens uses the local SQLite file `sqlite:///data/loanlens.sqlite`. PostgreSQL works through psycopg (`postgresql://...`). The schema is managed by Alembic (`src/loanlens/db/migrations/`); the app applies migrations itself, or run `alembic upgrade head` from the project root. A database that cannot be reached gives a plain message, never a stack trace. Because every decision must be recorded in the audit trail, no result is shown until it can be recorded; a batch summary that fails to save does not block the results. `.env.example` lists the environment variable names (no values).
+Accounts, the audit trail, batch jobs and anonymised batch summaries are stored through SQLAlchemy 2. The database comes from the `DATABASE_URL` environment variable; without it LoanLens uses the local SQLite file `sqlite:///data/loanlens.sqlite`. PostgreSQL works through psycopg (`postgresql://...`). The schema is managed by Alembic (`src/loanlens/db/migrations/`); the app applies migrations itself, or run `alembic upgrade head` from the project root (or `python -m loanlens.db upgrade`, which also works from an installed package, as in Docker). SQLite is for local demos with one process; several processes (API workers, a separate worker) need PostgreSQL. A database that cannot be reached gives a plain message, never a stack trace. Because every decision must be recorded in the audit trail, no result is shown until it can be recorded; a batch summary that fails to save does not block the results. `.env.example` lists the environment variable names (no values).
 
 ## Accounts and roles
 
@@ -200,7 +306,8 @@ Home, Sign in and About are public. Anyone else who opens a page they cannot use
 
 | Variable | Meaning |
 |---|---|
-| `LOANLENS_JWT_SECRET` | Signs session tokens, at least 32 characters. Missing in local development: a temporary key is used and a warning is shown. Missing with `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1`: the app refuses to start. |
+| `LOANLENS_JWT_SECRET` | Signs session tokens, at least 32 characters. Missing in local development: a temporary key is used and a warning is shown. Missing, or obviously not random, with `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1`: the app refuses to start. |
+| `LOANLENS_ENV`, `LOANLENS_HOSTED` | `production` (set by Docker) or hosted mode (see [Deploy](#deploy-hosted-demo)). |
 | `LOANLENS_SESSION_MINUTES`, `LOANLENS_LOCKOUT_ATTEMPTS`, `LOANLENS_LOCKOUT_MINUTES` | Session length (default 60), failed attempts before a lock (5) and lock length (15). |
 | `LOANLENS_BOOTSTRAP_MANAGER_EMAIL`, `LOANLENS_BOOTSTRAP_MANAGER_PASSWORD` | One-time creation of the first manager. Remove them afterwards. |
 
@@ -303,7 +410,7 @@ curl -s -o skipped.csv "$API/v1/batches/<id>/errors" -H "Authorization: Bearer $
 
 ## Performance
 
-Measured on one laptop (Intel Core i7-11800H, 16 GB RAM, Windows 11) on 2026-11-06. Full tables, method and caveats: [reports/performance.md](reports/performance.md) and [reports/load_test.md](reports/load_test.md). Nothing is extrapolated.
+Measured on one laptop (Intel Core i7-11800H, 16 GB RAM, Windows 11) on 2026-11-06. **Each configuration was measured once; PostgreSQL ran in a local Docker container on the same laptop, and the load generator ran on the same laptop as the server.** Full tables, method and caveats: [reports/performance.md](reports/performance.md) and [reports/load_test.md](reports/load_test.md). Nothing is extrapolated. **SQLite is for local demos; deployments with several processes need PostgreSQL.**
 
 **Batch jobs** (synthetic files, the real job path end to end, one worker):
 
@@ -325,11 +432,26 @@ Peak memory stayed between 457 and 527 MB in every run (growth of 104 to 168 MB 
 
 One worker process is CPU-bound at about 18 to 23 scores a second (about 56 ms of server time each); more worker processes scale it, and with several processes PostgreSQL should be used instead of SQLite. The sign-in limits were raised for the load test only.
 
+**Hosted mode** (Streamlit with its embedded worker, 5,000-row chunks): a 200,000-row file peaked at 503 MB on 2026-11-07; see [Deploy](#deploy-hosted-demo).
+
+## What data is stored (privacy)
+
+| What | Where | Contents |
+|---|---|---|
+| Accounts | `users` table | Email, argon2id password hash, role, status flags, created and last sign-in times, failed-attempt counter and lock time, a random audit reference. |
+| Sign-in and account events | `auth_events` | Event type, a short reason code and time; never a password, token or email address. |
+| Decisions | `decision_audit` (append-only) | The eight model input fields, status, probability, borderline flag, reason codes, loan type, policy and model versions, channel, request id, and the random audit reference of the account. Never an email, a name or an applicant ID. |
+| Batch jobs | `batch_jobs` and the private jobs directory | The job's counts, status, original file name (for display) and the stored file names. The uploaded file is deleted when the job ends; the results and errors files (which contain the manager's applicant IDs) after 7 days. |
+| Batch summaries | `batch_summaries` | Counts, approval rate and top reasons; applicant IDs only if `storage.store_applicant_ids` is switched on (it is off). |
+
+Deleting an account removes its `users` row; its decision records stay, but nothing links the random reference back to a person any more. Signed-in applicant checks are saved to the applicant's history and the audit trail. No data is sent to any third party. On a hosted platform, only use synthetic or test data.
+
 ## Security notes
 
 - There are **no default or demo passwords**. Accounts use argon2id password hashes, signed and expiring session tokens, a lockout after repeated failures and generic sign-in errors (see [Accounts and roles](#accounts-and-roles)).
 - Passwords, tokens and email addresses are never logged or written to the sign-in event table. Inputs are validated with Pydantic.
-- Set `LOANLENS_JWT_SECRET` before sharing the app; with `LOANLENS_ENV=production` or `LOANLENS_HOSTED=1` the app will not start without it.
+- Set `LOANLENS_JWT_SECRET` before sharing the app; with `LOANLENS_ENV=production` (Docker) or `LOANLENS_HOSTED=1` the app will not start without it, or with a placeholder-like value.
+- The Docker image runs as a non-root user, contains no dataset, `.env` or database, and compose publishes the app and the API on 127.0.0.1 only and the database not at all.
 - Decisions are stored in the append-only audit trail with the model input fields only and a random account reference (no email or name). Every function that scores, reads analytics or touches the audit trail checks the signed-in user's role itself (`src/loanlens/services.py`). Bulk Check also saves anonymised batch summaries (counts, approval rate, top reasons) in the configured database (a local SQLite file by default); applicant IDs are stored only if `storage.store_applicant_ids` is switched on in `config/policies/personal.yaml` (it is off). Database access uses the SQLAlchemy ORM or parameterised statements only.
 - Batch uploads and their result files (which can contain applicant IDs) are kept in a private, gitignored directory under random names, never served from a path in a request, and deleted after the retention period (7 days by default; uploads as soon as the job ends). See [Batch jobs](#batch-jobs).
 - The API rate-limits sign-in and registration per client address and per account, keeps CORS off by default and writes JSON logs without personal data.
@@ -341,8 +463,10 @@ One worker process is CPU-bound at about 18 to 23 scores a second (about 56 ms o
 ```
 CLAUDE.md                 project brief and working agreement
 README.md, USER_GUIDE.md, PROJECT_EXPLAINED.md
-requirements.txt          pinned packages (+ `-e .` for the loanlens package)
-requirements-dev.txt      optional extras (Playwright for screenshots, Locust for the load test)
+requirements.txt          pinned runtime packages (app, API, worker; used by Docker and hosting)
+constraints.txt           exact versions of every runtime package, indirect ones included
+requirements-dev.txt      runtime + `-e .` + tests, ruff, notebooks, Playwright, Locust
+Dockerfile, docker-compose.yml, .dockerignore   one image; db, migrate, api, app, worker
 pyproject.toml            package, ruff and pytest settings
 config/policies/          one profile per loan type: personal (default), home, vehicle (all PLACEHOLDERS)
 alembic.ini               Alembic settings (database from DATABASE_URL)
@@ -350,6 +474,7 @@ alembic.ini               Alembic settings (database from DATABASE_URL)
 .streamlit/config.toml    light theme; stack traces hidden from users
 data/raw/                 the three Kaggle CSVs (not committed)
 data/processed/           cleaned primary dataset (built by `python -m loanlens.model`)
+data/hosted/              analytics_aggregates.json: aggregates for Analytics without the data (committed)
 models/                   registry.json and the active artifact (committed); archived versions (local)
 notebooks/                01_audit, 02_eda, 03_modelling, 04_benchmark_bank_loan_data
 src/loanlens/
@@ -376,13 +501,17 @@ src/loanlens/
   theme.py                every colour, the app CSS and the Plotly template
   charts.py               Plotly charts (Analytics page and notebooks)
   auth/                   accounts, argon2id passwords, JWT sessions, roles, CLI (create-manager)
-  config.py, examples.py  policy profiles, content hash; six hypothetical example applicants
+  config.py, examples.py  policy profiles, content hash, project root; six example applicants
+  analytics.py            Analytics tables from the training data or the committed aggregates
+  hosted.py               hosted mode: Streamlit secrets, production checks, smaller job limits
+  healthcheck.py          container health checks (api, app, worker)
 app/                      Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check,
                           Analytics, About, Users, Account, My History, Audit
                           (layout only; logic is in src/loanlens)
 reports/                  model card, benchmark, performance, load test, decisions log, progress,
                           examples, screenshots
-scripts/                  example_decisions.py, make_batch_fixture.py, benchmark_batch.py
+scripts/                  example_decisions.py, make_batch_fixture.py, benchmark_batch.py,
+                          build_hosted_assets.py
 tests/                    pytest suite (unit tests and headless page tests); fixtures/ is synthetic;
                           load/locustfile.py (load test, dev only)
 ```
@@ -393,6 +522,8 @@ tests/                    pytest suite (unit tests and headless page tests); fix
 python -m loanlens.model               # train and register a new model version
 python -m loanlens.model --list        # registered versions
 alembic upgrade head                   # apply database migrations (DATABASE_URL or local SQLite)
+python -m loanlens.db upgrade          # the same from an installed package (Docker)
+python scripts/build_hosted_assets.py  # rebuild data/hosted/analytics_aggregates.json (--check)
 python -m loanlens.auth create-manager --email <email>   # create a manager (password prompt)
 uvicorn loanlens.api.app:app           # serve the REST API (docs at /docs)
 python -m loanlens.worker              # batch job worker (--once: drain the queue; --cleanup: retention)
@@ -401,11 +532,11 @@ python -m loanlens.rules               # write reports/rules_vs_labels.md
 python scripts/example_decisions.py    # write reports/example_decisions.md
 python scripts/make_batch_fixture.py   # regenerate the synthetic tests/fixtures/batch_1000.csv
 ruff check .
-pytest                                 # 735 passed, 13 skipped (746 passed, 2 skipped with PostgreSQL)
+pytest                                 # 779 passed, 13 skipped (790 passed, 2 skipped with PostgreSQL)
 pytest --cov=loanlens                  # coverage of src/loanlens (98%)
 ```
 
-Tests that need the dataset or model skip themselves if `data/raw/` is empty. The suite includes a memory test that streams a generated 200,000-row file (about two minutes). The PostgreSQL tests (database layer, audit triggers and job claiming with `SKIP LOCKED`) run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped. On 2026-11-06 all 11 of them ran and passed against a disposable PostgreSQL 16.15 database (a local `postgres:16` Docker container on this Windows machine): the database layer, the audit triggers including `TRUNCATE`, the check that migrations leave logging alone, and job claiming with two or more workers (`SKIP LOCKED`). LoanLens itself has not yet been run inside Docker (Milestone 5).
+Tests that need the dataset or model skip themselves if `data/raw/` is empty. The suite includes a memory test that streams a generated 200,000-row file (about two minutes). The PostgreSQL tests (database layer, audit triggers and job claiming with `SKIP LOCKED`) run only when `LOANLENS_TEST_POSTGRES_URL` points at a disposable test database (its tables are dropped); otherwise they are skipped. On 2026-11-06 all 11 of them ran and passed against a disposable PostgreSQL 16.15 database (a local `postgres:16` Docker container on this Windows machine): the database layer, the audit triggers including `TRUNCATE`, the check that migrations leave logging alone, and job claiming with two or more workers (`SKIP LOCKED`). They ran and passed again on 2026-11-07 for Milestone 5 (790 passed, 2 skipped in the full suite). A clone without the dataset or PostgreSQL gives 759 passed and 33 skipped.
 
 ## Limitations
 
@@ -419,6 +550,8 @@ Tests that need the dataset or model skip themselves if `data/raw/` is empty. Th
 - **In-memory rate limits.** The API's sign-in limits reset when it restarts and are not shared between processes.
 - **Embedded batch worker.** Without a separate worker process, jobs run in a thread inside the app; restarting the app (or a hosted platform putting it to sleep) interrupts a running job, which is marked failed and must be submitted again.
 - **Simple accounts.** Email addresses are not verified, there is no self-service password reset (a manager sets a temporary password), and the Streamlit session ends when the page is refreshed.
+- **Hosted demo limits.** A free host sleeps when idle, has about 1 GB of memory, loses job files on restart and needs an external PostgreSQL database to keep accounts and the audit trail; hosted jobs are capped at 200,000 rows.
+- **One laptop's numbers.** Every performance figure was measured once on one laptop; none describes a production deployment.
 
 ## What a lender would need to provide to take this further
 
@@ -433,6 +566,8 @@ Tests that need the dataset or model skip themselves if `data/raw/` is empty. Th
 - **Real repayment data**, so that default risk could be studied.
 - **Real policy thresholds** (and enforce settings) from a lender, replacing every placeholder.
 - Email verification and self-service password reset; shared rate limiting if the API runs as several processes.
+- A CI workflow (ruff, the data-free tests, the PostgreSQL tests in a service container, a Docker build).
+- Profile-specific models, once there is data per loan type.
 - **A default-risk model**, as a separate model with its own target, once repayment outcomes exist.
 - **Power BI dashboard** fed by exported, dashboard-ready CSVs.
 - Collecting the fields the benchmark shows are missing: previous defaults, employment experience, home ownership, loan purpose, offered interest rate and existing EMIs (`reports/benchmark.md`).

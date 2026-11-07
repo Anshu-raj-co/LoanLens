@@ -2,8 +2,8 @@
 
 * ``LOANLENS_JWT_SECRET``: key that signs session tokens (at least 32 characters).
   Missing in local development: a temporary key is generated for this process and a
-  warning is shown. Missing when ``LOANLENS_ENV=production`` or ``LOANLENS_HOSTED=1``:
-  the app refuses to start.
+  warning is shown. Missing, or obviously not random (:func:`weak_secret`), when
+  ``LOANLENS_ENV=production`` or ``LOANLENS_HOSTED=1``: the app refuses to start.
 * ``LOANLENS_SESSION_MINUTES`` (default 60), ``LOANLENS_LOCKOUT_ATTEMPTS`` (default 5) and
   ``LOANLENS_LOCKOUT_MINUTES`` (default 15).
 * ``LOANLENS_BOOTSTRAP_MANAGER_EMAIL`` and ``LOANLENS_BOOTSTRAP_MANAGER_PASSWORD``: create
@@ -81,6 +81,22 @@ def is_production(environ: Mapping[str, str] | None = None) -> bool:
     return mode == "production" or hosted in {"1", "true", "yes", "on"}
 
 
+MIN_DISTINCT_CHARACTERS = 12
+_PLACEHOLDER_WORDS = ("change", "secret", "example", "placeholder", "replace", "default")
+
+
+def weak_secret(secret: str) -> bool:
+    """True for a secret that is obviously not random (checked in production and hosted mode).
+
+    A random value of 32 or more characters (for example ``secrets.token_urlsafe(48)``)
+    always passes; a placeholder such as ``change-me-...`` or a repeated pattern does not.
+    """
+    lowered = secret.lower()
+    if any(word in lowered for word in _PLACEHOLDER_WORDS):
+        return True
+    return len(set(secret)) < MIN_DISTINCT_CHARACTERS
+
+
 @dataclass(frozen=True)
 class SigningKey:
     """The token signing key and whether it is a temporary one."""
@@ -102,6 +118,12 @@ def signing_key(environ: Mapping[str, str] | None = None) -> SigningKey:
         if len(secret) < MIN_SECRET_LENGTH:
             raise ConfigurationError(
                 f"{ENV_SECRET} is too short. Use at least {MIN_SECRET_LENGTH} random characters."
+            )
+        if is_production(environ) and weak_secret(secret):
+            raise ConfigurationError(
+                f"{ENV_SECRET} looks like a placeholder or has too little variety. LoanLens will "
+                "not start in production or hosted mode with it. Use a long random value, for "
+                'example from: python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
         return SigningKey(secret, ephemeral=False)
     if is_production(environ):

@@ -13,7 +13,8 @@ from typing import Literal
 import pandas as pd
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from loanlens.config import PROJECT_ROOT
+
 RAW_PATH = PROJECT_ROOT / "data" / "raw" / "loan_approval_dataset.csv"
 PROCESSED_PATH = PROJECT_ROOT / "data" / "processed" / "loan_approval_clean.csv"
 POLICY_PATH = PROJECT_ROOT / "config" / "policies" / "personal.yaml"  # default profile

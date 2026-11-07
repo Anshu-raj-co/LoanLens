@@ -22,11 +22,13 @@ __all__ = [
     "approval_by_quantile_band",
     "approval_heatmap",
     "approval_rate_bar",
+    "approval_rate_chart",
     "approval_rate_table",
     "cibil_band",
     "counts_bar",
     "distribution_by_status",
     "feature_importance_bar",
+    "quantile_bands",
 ]
 
 TARGET = "loan_status"
@@ -67,7 +69,15 @@ def approval_rate_bar(
     x_label: str | None = None,
 ) -> go.Figure:
     """Bar chart of approval rate per group, annotated with the number of applications."""
-    table = approval_rate_table(df, by)
+    return approval_rate_chart(approval_rate_table(df, by), title, x_label)
+
+
+def approval_rate_chart(table: pd.DataFrame, title: str, x_label: str | None = None) -> go.Figure:
+    """Bar chart from an :func:`approval_rate_table` (group column first).
+
+    Used directly when only the aggregated table is available (hosted mode, no data folder).
+    """
+    table = table.copy()
     group_col = table.columns[0]
     table[group_col] = table[group_col].astype(str)
     fig = px.bar(
@@ -109,12 +119,17 @@ def approval_by_quantile_band(
     Band labels show the value range of each band.
     """
     series = values if values is not None else df[column]
-    bands = pd.qcut(series, q=q, duplicates="drop")
-    named = bands.cat.rename_categories(
-        [f"{iv.left:,.2f} to {iv.right:,.2f}" for iv in bands.cat.categories]
-    ).rename(column)
+    named = quantile_bands(series, q).rename(column)
     return approval_rate_bar(
         df, named, title or f"Approval rate by {column} (quantile bands)", column
+    )
+
+
+def quantile_bands(series: pd.Series, q: int = 5) -> pd.Series:
+    """Quantile bands of a numeric series, labelled with each band's value range."""
+    bands = pd.qcut(series, q=q, duplicates="drop")
+    return bands.cat.rename_categories(
+        [f"{iv.left:,.2f} to {iv.right:,.2f}" for iv in bands.cat.categories]
     )
 
 

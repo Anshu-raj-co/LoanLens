@@ -18,11 +18,12 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 9. [A record of every decision](#a-record-of-every-decision)
 10. [Connecting other systems](#connecting-other-systems)
 11. [Checking very long lists](#checking-very-long-lists)
-12. [What the colours and labels mean](#what-the-colours-and-labels-mean)
-13. [What LoanLens is not](#what-loanlens-is-not)
-14. [Honest limits](#honest-limits)
-15. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
-16. [Glossary](#glossary)
+12. [Where LoanLens can run](#where-loanlens-can-run)
+13. [What the colours and labels mean](#what-the-colours-and-labels-mean)
+14. [What LoanLens is not](#what-loanlens-is-not)
+15. [Honest limits](#honest-limits)
+16. [What a real lender would need to add](#what-a-real-lender-would-need-to-add)
+17. [Glossary](#glossary)
 
 **[Part 2: Technical deep dive](#part-2-technical-deep-dive)**
 1. [Architecture](#1-architecture)
@@ -40,6 +41,7 @@ This document has two parts. Part 1 is for anyone; it uses no jargon. Part 2 is 
 13. [Service layer, audit trail and REST API](#13-service-layer-audit-trail-and-rest-api)
 14. [Security and privacy](#14-security-and-privacy)
 15. [Assumptions, placeholders and future work](#15-assumptions-placeholders-and-future-work)
+16. [Deployment: packaging, Docker and hosted mode](#16-deployment-packaging-docker-and-hosted-mode)
 
 ---
 
@@ -131,6 +133,16 @@ On the laptop LoanLens was built on, a list of one million made-up applications 
 
 The uploaded list and the answer files are kept in a private place under made-up names, never the names the manager gave them. The uploaded list is removed as soon as the work ends, and the answer files, which can contain the manager's own reference numbers for applicants, are removed after 7 days. If the work is stopped part-way, the answers already written to the permanent record stay there, because nothing can be removed from it.
 
+## Where LoanLens can run
+
+LoanLens can run in three ways.
+
+- **On one computer**, for trying it out. Everything is kept in one small file on that computer.
+- **In "containers"** (Docker): a standard way of packing a program with everything it needs, so it runs the same on any computer that supports it. Here LoanLens runs as several parts side by side: the website, the doorway for other programs, a helper that works through long lists, and a proper database that many parts can use at once. One short command starts them all, and another stops them.
+- **On a free hosting website**, as a demonstration that anyone with the link can open. Such sites give little memory and forget their files whenever they restart, so LoanLens is careful there: it checks smaller lists (at most 200,000 applications at a time), it needs a separate database somewhere else to remember accounts and the record of decisions, and a list being checked during a restart has to be sent again. It asks for made-up data only and shows that request on the page.
+
+Wherever it runs, LoanLens does not need the original data files: it brings the trained pattern-finding program and a small summary of the data (counts and percentages only, not a single applicant) with it. It also refuses to start in the container or hosted set-ups if its secret key is missing or looks like an easy-to-guess example.
+
 ## What the colours and labels mean
 
 | What you see | What it means |
@@ -218,7 +230,7 @@ flowchart LR
     AUDIT --> HIST["My History and Audit pages,<br/>GET /v1/audit"]
 ```
 
-The Streamlit pages in `app/` contain layout only; every decision, rule, explanation and text template lives in `src/loanlens/`. All thresholds come from the policy profiles in `config/policies/`. The pages and the REST API call only the protected service layer (`services.py` and `auth/`), which checks the signed-in user's role and writes the audit record; Streamlit calls it directly in the same process rather than through the API (a documented choice that keeps the app simple to run and host).
+The REST API and the batch worker (`python -m loanlens.worker`, or an embedded thread) call the same service layer and decision core; in Docker they run as separate containers sharing one PostgreSQL database and one jobs volume (section 16). The Streamlit pages in `app/` contain layout only; every decision, rule, explanation and text template lives in `src/loanlens/`. All thresholds come from the policy profiles in `config/policies/`. The pages and the REST API call only the protected service layer (`services.py` and `auth/`), which checks the signed-in user's role and writes the audit record; Streamlit calls it directly in the same process rather than through the API (a documented choice that keeps the app simple to run and host).
 
 ## 2. Data
 
@@ -359,7 +371,7 @@ Since Milestone 4 every Bulk Check upload and every `POST /v1/batches` request i
 - **Worker** (`worker.py`): `python -m loanlens.worker` (or `--once`, `--cleanup`), or an embedded daemon thread started by the Streamlit app and the API when no external worker has sent a heartbeat recently (`LOANLENS_EMBEDDED_WORKER`). It needs no session token: the submitting manager's `audit_ref` is stored on the job at submission and checked against an active manager account before the job runs. Running jobs without a heartbeat for 300 s are failed at start-up and every minute afterwards.
 - **Files:** private `LOANLENS_JOBS_DIR` (default `data/jobs/`), random 32-hex names, only that pattern accepted and only inside that directory, paths from the job record only. Uploads are deleted when the job ends; results after `LOANLENS_JOB_RETENTION_DAYS` (7).
 - **Storage:** a completed job writes one anonymised summary row (counts, approval rate, likelihood-band counts, top rejection reason codes, model version) for Analytics. No IDs, names or input values unless `storage.store_applicant_ids` is turned on (it is off); if it is, per-row IDs are read back from the Parquet file in batches.
-- **Measured speed and memory:** see [reports/performance.md](reports/performance.md). On 2026-11-06 (i7-11800H laptop): 1,000,000 synthetic rows in 663.7 s on PostgreSQL and 833.5 s on SQLite with audit on (525.9 s and 633.3 s with audit off); peak memory 457 to 527 MB at every size from 100,000 to 1,000,000 rows. Profiling one 20,000-row chunk showed about 60% of scoring time in explanation work (the "what would change" search and SHAP). API load test: [reports/load_test.md](reports/load_test.md) (1 worker levels off at about 18 to 23 scores a second; 4 workers on PostgreSQL served 81 a second at 100 users, p50 93 ms).
+- **Measured speed and memory:** see [reports/performance.md](reports/performance.md). Each configuration was measured once, on one laptop, with PostgreSQL in a local container and (for the load test) the load generator on the same machine; SQLite is for local demos, and multi-process deployments need PostgreSQL. On 2026-11-06 (i7-11800H laptop): 1,000,000 synthetic rows in 663.7 s on PostgreSQL and 833.5 s on SQLite with audit on (525.9 s and 633.3 s with audit off); peak memory 457 to 527 MB at every size from 100,000 to 1,000,000 rows. Profiling one 20,000-row chunk showed about 60% of scoring time in explanation work (the "what would change" search and SHAP). API load test: [reports/load_test.md](reports/load_test.md) (1 worker levels off at about 18 to 23 scores a second; 4 workers on PostgreSQL served 81 a second at 100 users, p50 93 ms).
 
 **Database layer.** `src/loanlens/db/` holds the SQLAlchemy 2 engine and session handling (`engine.py`) and the tables (`models.py`: the ORM class `BatchSummary` and the Core table `batch_rows`, both identical to the original `sqlite3` schema). The URL comes from `DATABASE_URL`, defaulting to `sqlite:///data/loanlens.sqlite`; `postgresql://` URLs are switched to the psycopg driver, and PostgreSQL connections time out after 5 seconds. The schema is managed by Alembic (`db/migrations/`, revisions `0001_initial`, `0002_auth`, which adds `users` and `auth_events`, `0003_audit`, which adds `decision_audit` with its append-only triggers and `users.token_version`, and `0004_batch_jobs`, which adds `batch_jobs` and `batch_workers`); `ensure_schema()` runs `upgrade head` once per URL per process, and the initial migration skips tables that already exist, so databases created by the old code are adopted without data loss. Every driver error becomes a `DatabaseError` with a plain message that never contains the URL or a password; a completed batch job whose summary cannot be saved still completes, with a note. Tests run on SQLite always and on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set. Running migrations from code never changes the process's logging: `ensure_schema()` sets a `skip_logging_config` attribute, and `env.py` applies alembic.ini's logging section only for the `alembic` command, without disabling existing loggers.
 
@@ -373,7 +385,7 @@ Ten Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check, Analytics,
 
 ## 10. Testing
 
-746 passing and 2 skipped with a PostgreSQL test database (both skips are PostgreSQL-only checks in their SQLite variant), or 735 passing and 13 skipped without one (pytest), 98% coverage of `src/loanlens`, `ruff` clean. The PostgreSQL tests, including job claiming with `SKIP LOCKED`, ran and passed against PostgreSQL 16.15 on 2026-11-06. Categories:
+790 passing and 2 skipped with a PostgreSQL test database (both skips are PostgreSQL-only checks in their SQLite variant), or 779 passing and 13 skipped without one (pytest), 98% coverage of `src/loanlens`, `ruff` clean. The PostgreSQL tests, including job claiming with `SKIP LOCKED`, ran and passed against PostgreSQL 16.15 on 2026-11-06 and again on 2026-11-07. On a fresh clone with no dataset and no PostgreSQL: 759 passed, 33 skipped. Categories:
 
 - cleaning, features and EMI, each policy rule and its thresholds (including values exactly at each limit), config validation;
 - schema validation and friendly messages;
@@ -389,6 +401,8 @@ Ten Streamlit pages: Home, Sign in, Check My Eligibility, Bulk Check, Analytics,
 - the audit trail (`tests/test_audit.py`): triggers reject `UPDATE` and `DELETE` (raw SQL and ORM), chunked inserts, no update or delete code paths (AST check), records from the UI, API and batch paths, history privacy, account deletion, filters, counts and pagination, and the My History and Audit pages; the trigger tests also run on PostgreSQL when `LOANLENS_TEST_POSTGRES_URL` is set (run and passed on 2026-11-06);
 - batch jobs (`tests/test_jobs.py`, `tests/test_api_batches.py`): results identical to the previous batch path (golden file) at chunk sizes 37, 999, 1,000, 1,001 and 20,000; bad rows spread across chunks keep their row numbers; a chunk of only bad rows; Parquet input (text and numeric columns, aliases, missing values); unreadable, header-only, binary and fake-Parquet files; a malformed line part-way; the row limit; audit rows per chunk; settings and their validation; random file names and rejected path traversal; the upload limit; the job lifecycle, cancel while queued and while running (audited rows kept), failure messages, a deactivated manager's job, audit switched off, stale jobs failed at start-up, retention clean-up, the worker CLI and the embedded worker; **two workers never claim the same job** (6 threads, 40 jobs, on SQLite and on PostgreSQL) and a direct `SKIP LOCKED` check on PostgreSQL; every `/v1/batches` endpoint with roles, downloads and errors; and a **memory test** that streams a generated 200,000-row file and checks that peak memory grows by less than 200 MB;
 - the REST API (`tests/test_api.py`, httpx test client): authentication on every protected endpoint, roles for every endpoint, the API result identical to the service layer for all six examples under all three loan types, batch results, audit rows with the request id, pagination and filters, the OpenAPI schema, health and readiness, one error shape, CORS, rate limits per client address and per account, and JSON logs without personal data.
+
+- hosted mode and deployment (`tests/test_hosted.py`, `tests/test_analytics.py`, `tests/test_healthcheck.py`): Streamlit secrets, weak and missing secrets refused in hosted mode, bootstrap checks, the ephemeral-database warning, hosted job defaults, the Bulk Check notice, project-root resolution, `python -m loanlens.db`; the committed aggregates file (no row-level data, equal to a fresh build, identical charts either way, importance only for its own model, broken or missing files) and the Analytics page without the data folder; the container health checks and the worker heartbeat during a long job.
 
 The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), with 20 deliberately bad rows. Tests that need the Kaggle data or the model skip themselves cleanly on a fresh clone.
 
@@ -425,6 +439,7 @@ The 1,000-row test file is fully synthetic (`scripts/make_batch_fixture.py`), wi
 - **Bulk Check** also stores anonymised batch summaries, in a local SQLite file or the database named by `DATABASE_URL` (ORM or parameterised statements only; the URL is never logged or shown).
 - **Batch files:** uploads and results live in a private, gitignored directory under random names; no path from a client is ever opened or served. Uploads are deleted when the job ends; results and error files (which can contain applicant IDs from the upload) after `LOANLENS_JOB_RETENTION_DAYS` (default 7, `python -m loanlens.worker --cleanup`, also run when a worker starts).
 - **Configuration** comes from environment variables (`.env.example` lists the names only); inputs are validated with Pydantic, and database access uses the ORM or parameterised statements only.
+- **Docker and hosted mode:** `LOANLENS_ENV=production` (Docker) and `LOANLENS_HOSTED=1` refuse a missing, short or placeholder-like `LOANLENS_JWT_SECRET`, an incomplete or weak bootstrap pair and `LOANLENS_BATCH_AUDIT=off`; the image runs as a non-root user and contains no dataset, `.env` or database; compose publishes nothing but the app and the API, on 127.0.0.1 (section 16).
 - **Gitignored:** `data/raw/` and `data/processed/` (third-party data), `data/jobs/` (batch files) and `data/benchmarks/` (generated synthetic files), archived model versions (the registry and the active 0.4 MB artifact are committed), `*.sqlite` / `*.db` (local results), `.env` and `.streamlit/secrets.toml` (secrets), `.venv/`, caches and coverage files.
 
 ## 15. Assumptions, placeholders and future work
@@ -441,3 +456,15 @@ Every value below is illustrative; a lender would replace it with its own credit
 - API limits: at most 1,000 applicants per batch request, and 10 sign-in or registration attempts per client address and 5 per account in 60 seconds (all configurable).
 
 **Future work:** real policy thresholds; repayment outcome data and a separate default-risk model; integration with origination and bureau systems; email verification and self-service password reset; shared rate limiting for several API processes; a compliance and fairness review; collecting previous defaults, employment experience, home ownership, loan purpose, offered rate and existing EMIs; optional dashboard-ready exports.
+
+## 16. Deployment: packaging, Docker and hosted mode
+
+**Running without the data folder.** Three committed files are enough to run every page: `models/registry.json`, the active artifact `models/loanlens_model_1.0.0.joblib` (about 0.4 MB, hash-checked against the registry) and `data/hosted/analytics_aggregates.json` (about 4 KB). The last is built by `scripts/build_hosted_assets.py` from the cleaned data and the active model: per CIBIL band, loan term and loan-size quintile the number of applications, approvals and the approval rate, plus the mean absolute SHAP share per feature with the model version and training time it belongs to. No row of the dataset is written, and a test checks that the committed file equals a fresh build. `analytics.py` gives the Analytics page the same tables from either source (`charts.approval_rate_chart` draws a table, so the figures are identical, which a test checks); stored importance values are shown only for the model they were computed for. With the data present, local behaviour is unchanged.
+
+**Packaging.** `requirements.txt` lists only the runtime packages (pinned); `constraints.txt` pins every indirect package too, as resolved in a clean Python 3.11 environment. Development tools and `-e .` moved to `requirements-dev.txt`. The package no longer has to be installed in editable mode: `config.find_project_root()` locates `config/`, `models/` and `reports/` from `LOANLENS_HOME`, else the source checkout, else the current directory (a non-editable install started from a clone), and `app/ui_common.py` puts `src/` on the import path when `loanlens` is not installed (a host that only installs `requirements.txt`). The Alembic migrations ship inside the package, and `python -m loanlens.db upgrade` runs `upgrade head` through Alembic's API from an installed package.
+
+**Docker.** One multi-stage image (`python:3.11-slim`): the builder installs the pinned packages into a virtual environment (XGBoost from `xgboost-cpu` of the same version, the project's CPU-only build without CUDA libraries) and the package non-editably; the runtime stage copies that environment, the policy files, the model, the aggregates, the model card, the app and the Streamlit config, and runs as user `loanlens` (uid 10001). `HEALTHCHECK` runs `python -m loanlens.healthcheck`, which checks the service named by `LOANLENS_SERVICE`: `GET /health` for the API, `/_stcore/health` for Streamlit, and for a worker a heartbeat in `batch_workers` from a worker id starting with that container's host name within 60 s (workers now report every poll interval from a heartbeat thread, also during a long job). `docker-compose.yml`: `db` (postgres:16, named volume, `pg_isready` health check, no published port), `migrate` (one-shot), `api`, `app` and `worker` (all `LOANLENS_ENV=production`, `LOANLENS_EMBEDDED_WORKER=0` for app and API, the shared `jobs` volume at `/data/jobs`). Required settings use compose's `${VAR:?message}` form, so a missing `POSTGRES_PASSWORD` or `LOANLENS_JWT_SECRET` stops compose with that message.
+
+**Run on 2026-11-07** (Docker 29.6.2, Docker Desktop on Windows): the stack started healthy, a manager was created with `docker compose run`, jobs submitted through the API and through the app were processed by the worker container with results identical to the test file's expected output, the example decisions inside the container matched the host exactly, and with two workers four jobs were each processed once. The image is 1.81 GB on disk. Details in the decisions log (D-105).
+
+**Hosted mode** (`hosted.py`, `LOANLENS_HOSTED=1`): settings are also read from Streamlit secrets (top-level `DATABASE_URL` and `LOANLENS_*` entries, never overriding a set environment variable); production checks apply, plus a refusal of weak secrets (fewer than 12 distinct characters or placeholder words) and of an incomplete or weak bootstrap pair; without an external PostgreSQL `DATABASE_URL` a warning says accounts and audit records will be lost on restart. Job defaults drop to 5,000-row chunks, 200,000 rows and 50 MB per job, with files in the system's temporary directory; the Bulk Check page shows the cap and a note to use only synthetic or test data. The settings come from a measurement on 2026-11-07: Streamlit in hosted mode with its embedded worker processed a 200,000-row synthetic file (uploaded through the page, every row audited, PostgreSQL in a local container) in 150.6 s with a peak resident memory of 503 MB for the Streamlit process, under the 700 MB budget for a host with about 1 GB; the cap was not raised above the measured size.

@@ -2,7 +2,13 @@
 
 LoanLens is a **prototype** that gives a quick, explained pre-eligibility check for a loan. It estimates whether an application looks like those that were **approved** in a public, synthetic dataset. It is **not a lending decision**, it does **not** predict whether a loan would be repaid (default), and every policy limit it uses is an **illustrative placeholder** until replaced by a lender's real credit policy.
 
-Start the app with `streamlit run app/Home.py` (setup: see README.md) and open the address it prints, usually http://localhost:8501. Use the sidebar to move between pages.
+How to open it depends on how it was set up (README.md has the steps):
+
+- **On your own computer:** `streamlit run app/Home.py`, then open the address it prints, usually http://localhost:8501.
+- **With Docker:** `docker compose up --build -d`, then open http://127.0.0.1:8501 (the API docs are at http://127.0.0.1:8000/docs).
+- **A hosted demonstration** (for example on Streamlit Community Cloud): open the link you were given. It is for **synthetic or test data only**; never enter real applicant details there. It may take a while to wake up after a quiet period.
+
+Use the sidebar to move between pages.
 
 ---
 
@@ -177,7 +183,7 @@ Bulk Check runs every file as a **background job**, so a large file does not blo
 5. **Downloads:** **Download results (CSV)**, **Download results (Parquet)** and **Download skipped rows (CSV)** (row number, your ID and every problem in the row; the header is row 1). For large files, click **Prepare downloads** first. Files above 200 MB are not offered in the browser; download them through the API (below).
 6. **Preview:** the first 1,000 results with coloured Approved and Rejected cells (always with the word), and the first skipped rows.
 
-Where the jobs run: a separate worker process (`python -m loanlens.worker`, started by the administrator) or, when none is running, a worker inside the app itself. If the app restarts during a job, that job stops and is marked **Failed** within about five minutes; submit the file again. If no worker can run, the page says so and jobs wait in the queue.
+Where the jobs run: a separate worker process (`python -m loanlens.worker`, started by the administrator; the `worker` service in Docker) or, when none is running, a worker inside the app itself. If the app restarts during a job, that job stops and is marked **Failed** within about five minutes; submit the file again. If no worker can run, the page says so and jobs wait in the queue.
 
 If a file cannot be read at all (empty, not a table, required columns missing, too many rows), the job fails with a plain message and nothing is scored.
 
@@ -208,6 +214,10 @@ An **anonymised summary** of each completed batch (counts, approval rate, likeli
 ### Speed and limits
 
 Measured on a laptop on 2026-11-06 (details in `reports/performance.md`): a 100,000-row file took about 1.2 to 1.3 minutes and a 1,000,000-row file about 11 to 14 minutes, with every row recorded in the audit trail. Your speed depends on the computer and the database. A file of more than 1,000,000 rows or 200 MB is refused with a message asking you to split it.
+
+On a **hosted demonstration** the limits are lower and shown on the page: at most **200,000 rows and 50 MB** per file (one such file took about 2.5 minutes in a test on 2026-11-07). The host may restart or go to sleep: a job that is running then stops and is marked **Failed** within about five minutes, and job files (uploads and results) are lost, so download results soon after a job completes. Upload only synthetic or test data there.
+
+While a job runs, the **Batch jobs** table below the progress bar is not refreshed and can still say *Queued*; the progress bar is the live view, and the table updates when the job ends or the page is reloaded.
 
 ### The Audit page
 

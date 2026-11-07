@@ -1,4 +1,8 @@
-# LoanLens - pinned dependencies (Python 3.11)
+# LoanLens - pinned runtime dependencies (Python 3.11).
+# Enough to run the Streamlit app, the REST API and the worker, locally, in Docker or on a
+# hosted platform. The package itself is not installed by this file: the app adds src/ to
+# its import path when needed, Docker installs it non-editably, and developers use
+# requirements-dev.txt (which adds "-e ." and the test and notebook tools).
 
 # Core data / ML
 numpy==2.0.2
@@ -19,7 +23,7 @@ PyYAML==6.0.2
 pyarrow==26.0.1
 psutil==7.2.2
 
-# Database (anonymised batch summaries; SQLite by default, PostgreSQL via DATABASE_URL)
+# Database (SQLite by default, PostgreSQL via DATABASE_URL)
 SQLAlchemy==2.0.57
 alembic==1.20.1
 psycopg[binary]==3.3.8
@@ -32,18 +36,4 @@ PyJWT==2.10.1
 fastapi==0.115.6
 uvicorn==0.32.1
 python-multipart==0.0.20  # file uploads (POST /v1/batches)
-httpx==0.28.1  # test client
-
-# Notebooks
-jupyter==1.1.1
-ipykernel==6.29.5
-nbformat==5.10.4
-nbconvert==7.16.4
-
-# Dev tooling
-pytest==8.3.4
-pytest-cov==6.0.0
-ruff==0.8.4
-
-# This project itself (makes `loanlens` importable for the app, CLI and tests)
--e .
+httpx==0.28.1  # API test client

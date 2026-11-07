@@ -29,6 +29,9 @@ Settings (environment variables, names in ``.env.example``):
 * ``LOANLENS_WORKER_POLL_SECONDS`` (default 2) and ``LOANLENS_JOB_STALE_SECONDS`` (default
   300): how often an idle worker looks for jobs, and how long a running job may go without
   a heartbeat before it is marked failed.
+
+With ``LOANLENS_HOSTED=1`` the defaults are smaller (chunks of 5,000 rows, at most 200,000
+rows and 50 MB per job, files in a temporary directory); see :mod:`loanlens.hosted`.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from typing import Any, BinaryIO, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import and_, delete, or_, select, update
 
+from loanlens import hosted
 from loanlens.auth.settings import ConfigurationError, is_production
 from loanlens.batch import CSV_FORMAT, PARQUET_FORMAT, PARQUET_MAGIC, BatchError
 from loanlens.config import PROJECT_ROOT
@@ -132,6 +136,11 @@ def load_job_settings(environ: Mapping[str, str] | None = None) -> JobSettings:
     values: dict[str, Any] = {
         k: environ[v].strip() for k, v in _ENV.items() if environ.get(v, "").strip()
     }
+    if hosted.is_hosted(environ):  # smaller defaults for a ~1 GB host (see loanlens.hosted)
+        values.setdefault("chunk_size", hosted.HOSTED_CHUNK_SIZE)
+        values.setdefault("max_rows", hosted.HOSTED_MAX_ROWS)
+        values.setdefault("max_upload_mb", hosted.HOSTED_MAX_UPLOAD_MB)
+        values["jobs_dir"] = hosted.HOSTED_JOBS_DIR
     if environ.get(ENV_JOBS_DIR, "").strip():
         path = Path(environ[ENV_JOBS_DIR].strip())
         values["jobs_dir"] = path if path.is_absolute() else PROJECT_ROOT / path

@@ -1,0 +1,155 @@
+{
+  "format_version": 1,
+  "description": "Aggregates of the public synthetic training data for the Analytics page when the data folder is absent. Counts and approval rates per group and feature importance only; no row-level data. Built by scripts/build_hosted_assets.py.",
+  "training_rows": 4269,
+  "training_data_sha256": "4cbe223dec261c44c62992a2406a5893958fc53f510ab834111c814607c44933",
+  "tables": {
+    "by_cibil_band": {
+      "group": "cibil_band",
+      "rows": [
+        {
+          "group": "300-450",
+          "applications": 1053,
+          "approved": 116,
+          "approval_rate": 0.110161
+        },
+        {
+          "group": "451-550",
+          "applications": 736,
+          "approved": 73,
+          "approval_rate": 0.099185
+        },
+        {
+          "group": "551-650",
+          "applications": 688,
+          "approved": 686,
+          "approval_rate": 0.997093
+        },
+        {
+          "group": "651-750",
+          "applications": 739,
+          "approved": 734,
+          "approval_rate": 0.993234
+        },
+        {
+          "group": "751-900",
+          "applications": 1053,
+          "approved": 1047,
+          "approval_rate": 0.994302
+        }
+      ]
+    },
+    "by_loan_term": {
+      "group": "loan_term",
+      "rows": [
+        {
+          "group": "2",
+          "applications": 404,
+          "approved": 315,
+          "approval_rate": 0.779703
+        },
+        {
+          "group": "4",
+          "applications": 447,
+          "approved": 366,
+          "approval_rate": 0.818792
+        },
+        {
+          "group": "6",
+          "applications": 490,
+          "approved": 282,
+          "approval_rate": 0.57551
+        },
+        {
+          "group": "8",
+          "applications": 386,
+          "approved": 220,
+          "approval_rate": 0.569948
+        },
+        {
+          "group": "10",
+          "applications": 436,
+          "approved": 229,
+          "approval_rate": 0.525229
+        },
+        {
+          "group": "12",
+          "applications": 456,
+          "approved": 276,
+          "approval_rate": 0.605263
+        },
+        {
+          "group": "14",
+          "applications": 405,
+          "approved": 239,
+          "approval_rate": 0.590123
+        },
+        {
+          "group": "16",
+          "applications": 412,
+          "approved": 236,
+          "approval_rate": 0.572816
+        },
+        {
+          "group": "18",
+          "applications": 422,
+          "approved": 257,
+          "approval_rate": 0.609005
+        },
+        {
+          "group": "20",
+          "applications": 411,
+          "approved": 236,
+          "approval_rate": 0.574209
+        }
+      ]
+    },
+    "by_loan_size": {
+      "group": "loan_amount",
+      "rows": [
+        {
+          "group": "300,000.00 to 6,200,000.00",
+          "applications": 860,
+          "approved": 551,
+          "approval_rate": 0.640698
+        },
+        {
+          "group": "6,200,000.00 to 11,800,000.00",
+          "applications": 861,
+          "approved": 532,
+          "approval_rate": 0.617886
+        },
+        {
+          "group": "11,800,000.00 to 17,480,000.00",
+          "applications": 840,
+          "approved": 491,
+          "approval_rate": 0.584524
+        },
+        {
+          "group": "17,480,000.00 to 23,400,000.00",
+          "applications": 864,
+          "approved": 521,
+          "approval_rate": 0.603009
+        },
+        {
+          "group": "23,400,000.00 to 39,500,000.00",
+          "applications": 844,
+          "approved": 561,
+          "approval_rate": 0.664692
+        }
+      ]
+    }
+  },
+  "feature_importance": {
+    "measure": "mean absolute SHAP share",
+    "model_version": "1.0.0",
+    "model_trained_at": "2026-11-05T19:18:04+00:00",
+    "shares": {
+      "CIBIL score": 0.57179,
+      "Loan term": 0.193917,
+      "Total assets": 0.115105,
+      "Annual income": 0.074723,
+      "Loan-to-income ratio": 0.044466
+    }
+  }
+}

@@ -68,11 +68,15 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
 
 @pytest.fixture(scope="session")
-def artifact(clean_df: pd.DataFrame) -> dict[str, Any]:
-    """The active registered model; trains and registers one first if none exists."""
+def artifact(request: pytest.FixtureRequest) -> dict[str, Any]:
+    """The active registered model (committed, so no dataset is needed).
+
+    Only if none is registered is one trained, which needs the processed data.
+    """
     try:
         return model.load_artifact()
     except FileNotFoundError:
+        clean_df = request.getfixturevalue("clean_df")
         model.train_and_register(clean_df, model.data_hash(cleaning.PROCESSED_PATH))
         return model.load_artifact()
 

@@ -1,5 +1,21 @@
-# LoanLens - optional development extras (not needed to run the app or the tests)
+# LoanLens - development install: runtime dependencies, this project in editable mode,
+# tests, linting, notebooks, screenshots and the load test.
+#   pip install -r requirements-dev.txt
 -r requirements.txt
+
+# This project itself (makes `loanlens` importable for the CLI commands and the worker)
+-e .
+
+# Tests and linting
+pytest==8.3.4
+pytest-cov==6.0.0
+ruff==0.8.4
+
+# Notebooks
+jupyter==1.1.1
+ipykernel==6.29.5
+nbformat==5.10.4
+nbconvert==7.16.4
 
 # Screenshot capture for reports/screenshots/ (headless browser).
 # After installing, fetch Chromium into the virtual environment with:

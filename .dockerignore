@@ -1,0 +1,31 @@
+# Allow-list: the image needs only these paths. Everything else (datasets in data/raw and
+# data/processed, job files, benchmark and load-test data, databases, .env, .venv, .git,
+# notebooks, tests, screenshots, archived model versions) never enters the build context.
+*
+!app/
+!config/
+!data/hosted/
+!models/registry.json
+!models/loanlens_model_1.0.0.joblib
+!models/loanlens_model_1.0.0.json
+!reports/model_card.md
+!src/
+!.streamlit/config.toml
+!pyproject.toml
+!requirements.txt
+!constraints.txt
+!alembic.ini
+
+# Never, even inside allowed folders
+**/__pycache__
+**/*.py[cod]
+**/*.sqlite*
+**/*.db
+**/.env
+**/secrets.toml
+data/raw/
+data/processed/
+data/jobs/
+data/benchmarks/
+.venv/
+.git/
