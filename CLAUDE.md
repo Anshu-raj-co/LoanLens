@@ -18,7 +18,7 @@ Users (updated for v2.0):
 - The data is synthetic and public. No real customer or lender data is used. No real-world accuracy is claimed.
 - Every policy threshold and the assumed interest rate are illustrative placeholders that a lender would replace with its own board-approved credit policy. Do not claim the checks are prescribed, approved or endorsed by any regulator, and do not claim regulatory compliance.
 - Policy profiles (personal, home, vehicle) change rules and assumptions only. They share one trained model.
-- Wording rule for all files: no emoji; do not name any bank, employer or other institution, and do not claim any affiliation. The only author name is Anshu Raj.
+- Wording rule for all files: no emoji (Unicode emoji and shortcodes such as :white_check_mark: are forbidden everywhere; Material icons written as :material/icon_name: are allowed in the app, because Streamlit renders them as vector icons, not emoji); do not name any bank, employer or other institution, and do not claim any affiliation. The only author name is Anshu Raj.
 
 ## 3. Data
 
@@ -73,19 +73,22 @@ One vectorised core (decide_many) serves single and batch modes, so an applicant
 
 ## 7. The application (updated for v2.0)
 
-Streamlit pages in `app/` contain layout only; all logic is in `src/loanlens/`:
-- Home (public): purpose, navigation, the illustrative-placeholders notice. No yellow disclaimer box.
-- Sign in (public): tabs for Sign in and Create account (applicants only).
-- Check My Eligibility (any signed-in user): form with ranges, hints, Indian digit grouping, a Loan type selector; result banner, likelihood band, borderline pill, reason cards, what would change, positive factors, warnings, policy checks.
-- My History (applicant): own past checks with CSV export.
+Streamlit pages in `app/` contain layout only; all logic is in `src/loanlens/`. `app/Home.py` is the entry point: it re-validates the session on every run and builds the menu with `st.navigation` for the account's stored role (`ui_common.run_app`). The menu is navigation only; every page still checks the role itself (`require_user`) and the service layer checks it again.
+- Sign In (the only page before signing in; no menu or sidebar): a role selector, Applicant (default) or Bank manager (admin). Applicant: tabs Sign in and Create account. Bank manager: Sign in only, with a note that manager accounts are created by an administrator or another manager. The selector is a convenience, not a permission: wrong credentials always get the generic message; a correct password for an account of the other role keeps no session (sign-out recorded, token dropped) and shows a neutral message.
+- Home (any signed-in user, the landing page after sign-in): role-aware welcome, cards only for the pages that user can open, the five-step decision flow.
+- Menu by role: applicant Home, Check My Eligibility, My History, Account, About; bank manager also Bulk Check, Analytics, Audit, Users. A user who must change a temporary password sees only Account (and Sign out). A typed address for a page outside the menu goes to the user's Home.
+- Check My Eligibility (any signed-in user): form grouped into sections, with ranges, hints, Indian digit grouping, a Loan type selector; result status, likelihood with a confidence meter, the applicant's own figures from the policy checks, borderline pill, reason cards, what would change, positive factors, warnings, policy checks.
+- My History (any signed-in user): own past checks with CSV export.
 - Account (any signed-in user): change password, delete account.
 - Bulk Check (manager): upload CSV or Parquet, choose loan type, background job with progress, job list, downloadable results and errors files. Header aliases accepted; invalid rows are listed with row numbers and skipped, never crash the app; blank asset cells are errors, not zeros.
 - Analytics (manager): approval patterns, model drivers, latest batch summary.
 - Audit (manager): filterable decision audit with CSV export.
 - Users (manager): list users, create managers, deactivate or reactivate, set a temporary password.
-- About (public): framing, data source, metrics, active model version, every policy profile's values and enforce settings, borderline explanation, benchmark summary, model card.
+- About (any signed-in user): framing, data source, metrics, active model version, every policy profile's values and enforce settings, borderline explanation, benchmark summary, model card.
+- The temporary-signing-key notice (no LOANLENS_JWT_SECRET, development only) is shown only to managers, collapsed, on Users and Account; the log warning stays.
+- Every page shows the "Prototype - not a lending decision" line (Sign In card and every footer).
 
-UI rules: white background, blue brand colour; every colour lives in `src/loanlens/theme.py` (primary blue #2E74E9, indigo #5271FF, navy text #0F1B3D, soft panel #F4F7FE, approved green #1E9E5A, rejected red #D93636, borderline amber #B7791F). Approved is always green and Rejected always red, in banners, table cells and charts, always together with plain words. NO emoji anywhere in the app, docs or reports. The header strip shows only the large title "LoanLens". Never show raw stack traces to users.
+UI rules: a light fintech design system in `src/loanlens/theme.py`, the only place colours and design tokens live (primary blue #2E74E9 with a deeper #143A8F for gradients, indigo #5271FF, navy text #0F1B3D, page canvas #F6F8FC, white cards, soft panel #F4F7FE, approved green #1E9E5A, rejected red #D93636, borderline amber #B7791F; radii, spacing, shadows and focus ring as CSS variables), the Inter font from Google Fonts with a system fallback, one shared CSS block applied on every page, and an SVG logo mark in `app/assets/` (also the favicon). Approved is always green and Rejected always red, in banners, table cells and charts, always together with plain words. NO emoji anywhere in the app, docs or reports; Material icons (:material/icon_name:) are allowed in the app. Each page has a brand row (logo mark and "LoanLens") above its title; Home has a gradient hero and Sign In a gradient brand panel instead. Never show raw stack traces to users.
 
 ## 8. Project structure
 
@@ -106,7 +109,7 @@ src/loanlens/ schema, cleaning, features, rules, model, registry, explain, decis
               services (protected service layer), audit, api/ (FastAPI app, schemas, settings, rate limiter),
               db/ (engine, models, Alembic migrations in db/migrations/, python -m loanlens.db),
               pipeline, jobs, worker, synthetic, analytics, hosted, healthcheck
-app/ Home.py, ui_common.py, pages/
+app/ Home.py (entry point, role-based st.navigation), ui_common.py, assets/ (logo SVGs), pages/ (0_Sign_In, 9_Home dashboard, 1 to 8 as before)
 reports/ model_card, benchmark, rules_vs_labels, example_decisions,
          progress, decisions_log, screenshots/
 scripts/ example_decisions.py, make_batch_fixture.py, benchmark_batch.py, build_hosted_assets.py
@@ -144,6 +147,9 @@ After M4: 746 tests passing and 2 skipped with LOANLENS_TEST_POSTGRES_URL set (a
 
 After M5 (v2.0): 790 tests passing and 2 skipped with LOANLENS_TEST_POSTGRES_URL set (all 11 PostgreSQL tests ran and passed); 779 passing and 13 skipped without it; 759 passing and 33 skipped on a fresh clone without data or PostgreSQL; 98% coverage, ruff clean.
 
+
+After the sign-in-first and redesign task (2026-11-07): 829 tests passing and 2 skipped with LOANLENS_TEST_POSTGRES_URL set; 818 passing and 13 skipped without it; 98% coverage, ruff clean.
+
 v2.0: see section 15. A milestone is done only when ruff is clean, all tests pass, the example decisions are unchanged under the default personal profile, docs are updated and the work is committed.
 
 ## 12. Out of scope
@@ -164,7 +170,7 @@ Real lender data, a default-risk model, email services (verification and passwor
 - Permissions: you may create, edit, rename and delete files inside the project directory, install packages into the project's venv, and run python, pytest, ruff, streamlit, uvicorn, alembic, locust, docker (if installed) and git. Never touch anything outside the project directory. Never print or store credentials.
 - Working mode: work continuously without asking questions. Decide yourself and log decisions in reports/decisions_log.md. Stop only if progress is impossible.
 - Scope: do only the tasks in the current prompt. Extras go under "Suggestions" in the decisions log.
-- Identity and wording: no emoji anywhere (UI, docs, reports, code comments, commit messages). Do not name any bank, employer or other institution, and do not claim any affiliation. The only author name is Anshu Raj. Git identity: name "Anshu Raj", email "59351492+Anshu-raj-co@users.noreply.github.com".
+- Identity and wording: no emoji anywhere (UI, docs, reports, code comments, commit messages); Material icon shortcodes (:material/icon_name:) are allowed in the app because they are vector icons, and tests/test_no_emoji.py enforces both rules. Do not name any bank, employer or other institution, and do not claim any affiliation. The only author name is Anshu Raj. Git identity: name "Anshu Raj", email "59351492+Anshu-raj-co@users.noreply.github.com".
 - Behaviour: the decisions for the built-in example applicants under the default personal profile must stay identical unless a prompt says otherwise. At the end of every milestone ruff is clean and all tests pass. Add tests for all new code.
 - Security: no secrets or default passwords in the repository. Configuration comes from environment variables; `.env.example` documents names only. Passwords are hashed with argon2id. Never log passwords, tokens or personal data. Use the ORM or parameterised queries only. Validate all inputs with Pydantic.
 - Allowed new dependencies (pinned): SQLAlchemy 2.x, Alembic, psycopg (binary), FastAPI, uvicorn, python-multipart, argon2-cffi, PyJWT, pyarrow, psutil, httpx (tests), locust (dev only). No Redis, Celery, Kubernetes, queues or cloud SDKs.
@@ -195,5 +201,7 @@ Roles and data:
 Known limitations to state honestly: no email verification, no self-service password reset (a manager resets it), the Streamlit session ends on page refresh, policy profiles share one trained model, the data is synthetic, every threshold is an illustrative placeholder, and Docker or PostgreSQL results are only claimed if they were actually run (both were run on 2026-11-07; a public host deployment has not been done).
 
 Deployment (after M5, done by the owner): a free host such as Streamlit Community Cloud runs only the Streamlit app, has about 1 GB of memory, sleeps after inactivity, and needs an external PostgreSQL database for accounts. Set LOANLENS_HOSTED=1, secrets and a lower, measured upload-row cap. The API and worker are demonstrated through Docker locally or on a Docker-capable host. Never use real applicant data on a public host.
+
+After v2.0 (2026-11-07, committed, not pushed): Sign In is the first screen with a role selector (Applicant or Bank manager (admin); the stored role decides), the menu is built for the signed-in role with st.navigation, Home is the post-sign-in dashboard, About needs a signed-in user, the temporary-signing-key notice is shown only to managers, and the UI was redesigned (design tokens, Inter, logo, hero, cards, result meter). Model, policies, auth service, database, services, decision logic, API and Docker unchanged; example decisions unchanged; 829 tests passed and 2 skipped with PostgreSQL, 98% coverage.
 
 Release history: v1.0 tagged and pushed to https://github.com/Anshu-raj-co/LoanLens . v2.0 tagged at the end of M5 (2026-11-07).

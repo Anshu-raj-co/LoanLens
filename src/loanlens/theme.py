@@ -1,12 +1,14 @@
-"""LoanLens visual theme: every colour, the shared app CSS and the Plotly template.
+"""LoanLens design system: colour tokens, the shared app CSS, HTML components and Plotly.
 
-This is the only place colours are defined. The Streamlit pages (via ``app/ui_common.py``),
-``charts.py`` and the notebooks import from here, so the whole product looks the same.
-Styling only: nothing here affects a decision.
+This is the only place colours, fonts, radii, shadows and spacing are defined. The Streamlit
+pages (through ``apply_theme`` in ``app/ui_common.py``), ``charts.py`` and the notebooks
+import from here, so the whole product looks the same. Styling only: nothing here affects a
+decision.
 """
 
 from __future__ import annotations
 
+import base64
 import html
 
 import pandas as pd
@@ -14,14 +16,24 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 # ---- Palette -------------------------------------------------------------------------------
-BACKGROUND = "#FFFFFF"
+# Surfaces and neutrals
+BACKGROUND = "#FFFFFF"  # cards, inputs, tables and charts
 BACKGROUND_RGB = "rgb(255, 255, 255)"  # same colour; see style_figure
-SOFT_PANEL = "#F4F7FE"
+CANVAS = "#F6F8FC"  # the page behind the cards
+SOFT_PANEL = "#F4F7FE"  # tinted panels, sidebar hover, info callouts
 BORDER = "#E3E9F5"
+BORDER_STRONG = "#CBD5E5"
+TEXT = "#0F1B3D"  # navy body text
+TEXT_SOFT = "#364260"  # secondary body text
+MUTED = "#5B6785"  # captions and labels (AA on white, canvas and soft panel)
+
+# Brand: royal blue with a deeper shade for gradients and an indigo accent
 PRIMARY = "#2E74E9"
+PRIMARY_TINT = "#EAF1FD"
+PRIMARY_DEEP = "#143A8F"
 INDIGO = "#5271FF"
-TEXT = "#0F1B3D"
-MUTED = "#5B6785"
+
+# Semantic: green = Approved, red = Rejected, amber = Borderline
 APPROVED = "#1E9E5A"
 APPROVED_TINT = "#E8F6EE"
 REJECTED = "#D93636"
@@ -40,14 +52,24 @@ WARNING_INK = "#8A5A12"
 NEUTRAL = "#6B7280"
 NEUTRAL_TINT = "#F1F3F7"
 NEUTRAL_INK = "#4B5563"
+ON_BRAND = "#FFFFFF"  # text on the blue gradients
+ON_BRAND_SOFT = "#DCE7FF"  # secondary text on the blue gradients
+
+# The hero and sign-in gradient (every stop keeps white text above 4.5:1).
+GRADIENT_STOPS = (PRIMARY_INK, "#1846AE", PRIMARY_DEEP)
 
 PALETTE: dict[str, str] = {
     "background": BACKGROUND,
+    "canvas": CANVAS,
     "soft_panel": SOFT_PANEL,
     "border": BORDER,
+    "border_strong": BORDER_STRONG,
     "primary": PRIMARY,
+    "primary_tint": PRIMARY_TINT,
+    "primary_deep": PRIMARY_DEEP,
     "indigo": INDIGO,
     "text": TEXT,
+    "text_soft": TEXT_SOFT,
     "muted": MUTED,
     "approved": APPROVED,
     "approved_tint": APPROVED_TINT,
@@ -57,8 +79,12 @@ PALETTE: dict[str, str] = {
     "warning_tint": WARNING_TINT,
 }
 
+# Inter is loaded from Google Fonts; every platform falls back to a good system font when it
+# cannot be loaded (offline, in a locked-down network or in Docker without internet).
+FONT_NAME = "Inter"
+FONT_URL = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
 FONT_STACK = (
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, '
+    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, '
     '"Noto Sans", sans-serif'
 )
 
@@ -107,15 +133,131 @@ def contrast_ratio(foreground: str, background: str) -> float:
     return (max(a, b) + 0.05) / (min(a, b) + 0.05)
 
 
-# ---- HTML snippets (escaped) ---------------------------------------------------------------
+# ---- Logo ----------------------------------------------------------------------------------
+# The logo mark: a magnifying lens with a check mark on a blue tile. It is a vector image (not
+# an emoji); app/assets/logo_mark.svg holds the same markup (a test keeps them equal).
+LOGO_MARK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'
+    '<defs><linearGradient id="llg" x1="0" y1="0" x2="1" y2="1">'
+    f'<stop offset="0" stop-color="{PRIMARY}"/><stop offset="1" stop-color="{PRIMARY_DEEP}"/>'
+    "</linearGradient></defs>"
+    '<rect width="64" height="64" rx="16" fill="url(#llg)"/>'
+    '<circle cx="28" cy="28" r="13" fill="none" stroke="#FFFFFF" stroke-width="5"/>'
+    '<path d="M37.5 37.5 L47 47" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>'
+    '<path d="M22 28.5 L26.5 33 L34 24" fill="none" stroke="#FFFFFF" stroke-width="3.6" '
+    'stroke-linecap="round" stroke-linejoin="round"/>'
+    "</svg>"
+)
+
+
+# The sidebar logo: the mark followed by the product name (system fonts inside the image).
+LOGO_WORDMARK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="172" height="40" viewBox="0 0 172 40">'
+    '<g transform="scale(0.625)">' + LOGO_MARK_SVG.split(">", 1)[1].rsplit("</svg>", 1)[0] + "</g>"
+    '<text x="50" y="28" font-family="Inter, Segoe UI, Roboto, Arial, sans-serif" '
+    f'font-size="22" font-weight="800" letter-spacing="-0.5" fill="{TEXT}">LoanLens</text>'
+    "</svg>"
+)
+
+
+def logo_mark_data_uri() -> str:
+    """The logo mark as a ``data:`` URI for an ``<img>`` tag."""
+    encoded = base64.b64encode(LOGO_MARK_SVG.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+def _logo_img(size: int, extra_class: str = "") -> str:
+    return (
+        f'<img class="ll-logo-mark {extra_class}" src="{logo_mark_data_uri()}" width="{size}" '
+        f'height="{size}" alt="">'
+    )
+
+
+# ---- HTML snippets (all user text escaped) -------------------------------------------------
 def pill_html(text: str, tone: str = "warning") -> str:
     """A small rounded label, e.g. the amber borderline pill."""
     return f'<span class="ll-pill ll-pill-{tone}">{html.escape(text)}</span>'
 
 
 def header_html(name: str) -> str:
-    """The branded header strip shown at the top of every page: the product name only."""
-    return f'<div class="ll-header"><span class="ll-brand">{html.escape(name)}</span></div>'
+    """The brand row at the top of every page: the logo mark and the product name only."""
+    return (
+        f'<div class="ll-header">{_logo_img(30)}'
+        f'<span class="ll-brand">{html.escape(name)}</span></div>'
+    )
+
+
+def hero_html(eyebrow: str, title: str, line: str) -> str:
+    """The Home hero: logo mark, product name, a greeting and the one-line value proposition."""
+    return (
+        '<div class="ll-hero-body">'
+        f'<div class="ll-hero-brand">{_logo_img(44, "ll-logo-hero")}'
+        f'<span class="ll-hero-name">{html.escape(title)}</span></div>'
+        f'<p class="ll-hero-eyebrow">{html.escape(eyebrow)}</p>'
+        f'<p class="ll-hero-line">{html.escape(line)}</p>'
+        "</div>"
+    )
+
+
+def brand_panel_html(title: str, line: str, points: list[str]) -> str:
+    """The gradient brand panel beside the sign-in card (stacks above it on small screens)."""
+    items = "".join(f"<li>{html.escape(p)}</li>" for p in points)
+    return (
+        '<div class="ll-brand-panel">'
+        f'<div class="ll-hero-brand">{_logo_img(48, "ll-logo-hero")}'
+        f'<span class="ll-hero-name">{html.escape(title)}</span></div>'
+        f'<p class="ll-hero-line">{html.escape(line)}</p>'
+        f'<ul class="ll-brand-points">{items}</ul>'
+        "</div>"
+    )
+
+
+def steps_html(steps: list[tuple[str, str]]) -> str:
+    """A numbered step flow (timeline) from ``(title, text)`` pairs."""
+    items = "".join(
+        f'<li class="ll-step"><span class="ll-step-num" aria-hidden="true">{i}</span>'
+        f'<div class="ll-step-body"><p class="ll-step-title">{html.escape(title)}</p>'
+        f'<p class="ll-step-text">{html.escape(text)}</p></div></li>'
+        for i, (title, text) in enumerate(steps, start=1)
+    )
+    return f'<ol class="ll-steps">{items}</ol>'
+
+
+def trust_html(items: list[tuple[str, str]]) -> str:
+    """A row of short trust statements from ``(title, text)`` pairs."""
+    cells = "".join(
+        '<div class="ll-trust-item"><span class="ll-trust-tick" aria-hidden="true"></span>'
+        f'<div><p class="ll-trust-title">{html.escape(title)}</p>'
+        f'<p class="ll-trust-text">{html.escape(text)}</p></div></div>'
+        for title, text in items
+    )
+    return f'<div class="ll-trust">{cells}</div>'
+
+
+def meter_html(
+    probability: float, threshold: float, band: tuple[float, float], approved: bool, label: str
+) -> str:
+    """A confidence meter: the model score as a bar, with the cut-off and the borderline band.
+
+    The bar never reaches either end (as the shown percentage never reads 0% or 100%). Display
+    only: the numbers come from the decision result and the policy profile.
+    """
+    pct = min(max(probability * 100.0, 1.0), 99.0)
+    low, high = (min(max(v * 100.0, 0.0), 100.0) for v in band)
+    cut = min(max(threshold * 100.0, 0.0), 100.0)
+    tone = "approved" if approved else "rejected"
+    return (
+        f'<div class="ll-meter" role="img" aria-label="{html.escape(label)}">'
+        '<div class="ll-meter-track">'
+        f'<div class="ll-meter-band" style="left:{low:.1f}%;width:{max(high - low, 0):.1f}%">'
+        "</div>"
+        f'<div class="ll-meter-fill ll-meter-{tone}" style="width:{pct:.1f}%"></div>'
+        f'<div class="ll-meter-cut" style="left:{cut:.1f}%"></div>'
+        "</div>"
+        '<div class="ll-meter-scale"><span>Less likely</span>'
+        f"<span>Cut-off {threshold:.0%}</span><span>More likely</span></div>"
+        "</div>"
+    )
 
 
 # ---- Tables --------------------------------------------------------------------------------
@@ -161,19 +303,23 @@ RATE_SCALE = [[0.0, REJECTED], [0.5, "#F2C66D"], [1.0, APPROVED]]
 
 
 def plotly_template() -> go.layout.Template:
-    """White background, light grid, navy text, system fonts, brand colour sequence."""
+    """White background, light grid, navy text, the Inter font stack, brand colour sequence."""
     axis = {
         "gridcolor": BORDER,
         "linecolor": BORDER,
         "zerolinecolor": BORDER,
         "tickfont": {"color": MUTED},
-        "title": {"font": {"color": TEXT}},
+        "title": {"font": {"color": TEXT_SOFT}},
         "automargin": True,
     }
     return go.layout.Template(
         layout={
             "font": {"family": FONT_STACK, "color": TEXT, "size": 13},
-            "title": {"font": {"family": FONT_STACK, "color": TEXT, "size": 17}, "x": 0.0},
+            "title": {
+                "font": {"family": FONT_STACK, "color": TEXT, "size": 16},
+                "x": 0.0,
+                "xanchor": "left",
+            },
             "paper_bgcolor": BACKGROUND,
             "plot_bgcolor": BACKGROUND,
             "colorway": SEQUENCE,
@@ -187,7 +333,7 @@ def plotly_template() -> go.layout.Template:
             },  # fmt: skip
             "colorscale": {"sequential": RATE_SCALE},
             "margin": {"l": 10, "r": 10, "t": 56, "b": 10},
-            "bargap": 0.3,
+            "bargap": 0.35,
         }
     )
 
@@ -220,6 +366,9 @@ def register_plotly_template(make_default: bool = True) -> str:
 
 
 # ---- Streamlit -----------------------------------------------------------------------------
+# Native theme options (also written in .streamlit/config.toml; a test keeps them equal).
+# Streamlit 1.40 offers only "sans serif", "serif" or "monospace" as the theme font, so Inter
+# is applied by the CSS below.
 STREAMLIT_THEME = {
     "base": "light",
     "primaryColor": PRIMARY,
@@ -228,131 +377,502 @@ STREAMLIT_THEME = {
     "textColor": TEXT,
 }
 
+# Design tokens, emitted as CSS variables on :root.
+TOKENS: dict[str, str] = {
+    "--ll-font": FONT_STACK,
+    "--ll-bg": BACKGROUND,
+    "--ll-canvas": CANVAS,
+    "--ll-panel": SOFT_PANEL,
+    "--ll-border": BORDER,
+    "--ll-border-strong": BORDER_STRONG,
+    "--ll-text": TEXT,
+    "--ll-text-soft": TEXT_SOFT,
+    "--ll-muted": MUTED,
+    "--ll-primary": PRIMARY,
+    "--ll-primary-tint": PRIMARY_TINT,
+    "--ll-primary-ink": PRIMARY_INK,
+    "--ll-primary-hover": PRIMARY_INK_HOVER,
+    "--ll-primary-deep": PRIMARY_DEEP,
+    "--ll-indigo": INDIGO,
+    "--ll-approved": APPROVED,
+    "--ll-approved-tint": APPROVED_TINT,
+    "--ll-approved-ink": APPROVED_INK,
+    "--ll-rejected": REJECTED,
+    "--ll-rejected-tint": REJECTED_TINT,
+    "--ll-rejected-ink": REJECTED_INK,
+    "--ll-warning": WARNING,
+    "--ll-warning-tint": WARNING_TINT,
+    "--ll-warning-ink": WARNING_INK,
+    "--ll-on-brand": ON_BRAND,
+    "--ll-on-brand-soft": ON_BRAND_SOFT,
+    "--ll-gradient": (
+        f"linear-gradient(135deg, {GRADIENT_STOPS[0]} 0%, {GRADIENT_STOPS[1]} 55%, "
+        f"{GRADIENT_STOPS[2]} 100%)"
+    ),
+    "--ll-radius-sm": "10px",
+    "--ll-radius": "14px",
+    "--ll-radius-lg": "18px",
+    "--ll-space-1": "0.25rem",
+    "--ll-space-2": "0.5rem",
+    "--ll-space-3": "0.75rem",
+    "--ll-space-4": "1rem",
+    "--ll-space-5": "1.5rem",
+    "--ll-space-6": "2rem",
+    "--ll-shadow-sm": "0 1px 2px rgba(15, 27, 61, 0.05), 0 1px 3px rgba(15, 27, 61, 0.05)",
+    "--ll-shadow-md": "0 6px 16px rgba(15, 27, 61, 0.08)",
+    "--ll-shadow-lg": "0 14px 34px rgba(15, 27, 61, 0.13)",
+    "--ll-shadow-brand": "0 10px 24px rgba(29, 95, 207, 0.28)",
+    "--ll-focus": "0 0 0 3px rgba(46, 116, 233, 0.35)",
+    "--ll-ease": "cubic-bezier(0.2, 0.7, 0.2, 1)",
+}
 
-def _tone_rules(prefix: str, tone: str) -> str:
-    colour = _TONES[tone][0]
-    return (
-        f'[class*="st-key-{prefix}"] {{ background: {BACKGROUND}; border: 1px solid {BORDER}; '
-        f"border-left: 5px solid {colour}; border-radius: 12px; padding: 0.85rem 1.1rem; "
-        f"box-sizing: border-box; box-shadow: 0 1px 3px rgba(15, 27, 61, 0.06); }}\n"
-    )
+# Every rule below uses only the variables above (no colour literals), so the palette lives in
+# one place. Streamlit test ids are used where they exist; keyed containers get the class
+# ``st-key-<key>`` and are styled through that.
+_BASE_CSS = """
+/* ---- Base and typography ---- */
+html, body, .stApp { font-family: var(--ll-font); }
+/* Text elements only: icon spans (and the spans that wrap them) keep the icon font. */
+.stApp :where(p, li, label, a, input, textarea, select, small, strong, em, th, td,
+  h1, h2, h3, h4, h5, h6, [data-testid="stMarkdownContainer"],
+  [data-testid="stSidebarNavLink"] > span:last-child, [data-testid="stNavSectionHeader"],
+  [data-baseweb="select"] div, [data-baseweb="tab"]) { font-family: var(--ll-font); }
+/* Streamlit sizes element boxes in pixels; inside padded cards they must not overflow. */
+[data-testid="stElementContainer"], [data-testid="stElementContainer"] > div {
+  max-width: 100%; }
+[data-testid="stHeaderActionElements"] { display: none; }
+.stApp { background: var(--ll-canvas); color: var(--ll-text); }
+[data-testid="stMain"] { background: var(--ll-canvas); }
+[data-testid="stMainBlockContainer"] { max-width: 1240px; padding: 3.4rem 2.4rem 3rem; }
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stDecoration"] { display: none; }
+[data-testid="stAppDeployButton"], [data-testid="stStatusWidget"] [kind="header"],
+footer { display: none !important; }
+.stMarkdown p, .stMarkdown li { font-size: 1rem; line-height: 1.65; color: var(--ll-text); }
+h1, h2, h3, h4, h5 { color: var(--ll-text); letter-spacing: -0.02em; font-family: var(--ll-font); }
+h1 { font-size: 2.15rem !important; font-weight: 800 !important; line-height: 1.2 !important;
+  padding-bottom: 0.25rem !important; }
+h2 { font-size: 1.5rem !important; font-weight: 750 !important; margin-top: 0.9rem; }
+h3 { font-size: 1.22rem !important; font-weight: 700 !important; }
+h4 { font-size: 1.05rem !important; font-weight: 700 !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p, .stCaption {
+  color: var(--ll-muted) !important; font-size: 0.875rem; line-height: 1.55; }
+a, a:visited { color: var(--ll-primary-ink); }
+code { color: var(--ll-text-soft); background: var(--ll-panel); border-radius: 6px; }
+hr { border-color: var(--ll-border) !important; }
+*:focus-visible { outline: none; box-shadow: var(--ll-focus) !important; border-radius: 8px; }
 
+/* ---- Brand row and page header ---- */
+.ll-header { display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.35rem 0; }
+.ll-header .ll-logo-mark { border-radius: 9px; box-shadow: var(--ll-shadow-sm); }
+.ll-brand { font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em;
+  color: var(--ll-text); }
+.st-key-page_subtitle p { color: var(--ll-muted) !important; font-size: 1.02rem;
+  margin-top: -0.35rem; }
 
-def app_css() -> str:
-    """The one CSS block injected on every page (light fintech look)."""
-    alert = '[data-testid="stAlertContainer"]:has([data-testid="stAlertContent{kind}"])'
-    parts = [
-        f"""
-html, body, [class*="css"], .stApp, .stMarkdown, button, input, textarea, select {{
-  font-family: {FONT_STACK};
-}}
-.stApp {{ background: {BACKGROUND}; color: {TEXT}; }}
-[data-testid="stMainBlockContainer"] {{ padding-top: 3.6rem; padding-bottom: 3rem;
-  max-width: 1180px; }}
-[data-testid="stHeader"] {{ background: rgba(255, 255, 255, 0.9); }}
-[data-testid="stDecoration"] {{ display: none; }}
-h1, h2, h3, h4 {{ color: {TEXT}; letter-spacing: -0.01em; }}
-h1 {{ font-size: 2rem !important; font-weight: 700 !important; }}
-h2 {{ font-size: 1.45rem !important; font-weight: 650 !important; margin-top: 0.6rem; }}
-h3 {{ font-size: 1.2rem !important; font-weight: 650 !important; }}
-p, li {{ font-size: 1rem; line-height: 1.6; }}
-[data-testid="stCaptionContainer"], .stCaption {{ color: {MUTED} !important; }}
-a {{ color: {PRIMARY_INK}; }}
+/* ---- Sidebar ---- */
+[data-testid="stSidebar"] { background: var(--ll-bg); border-right: 1px solid var(--ll-border); }
+[data-testid="stSidebarHeader"] { padding-bottom: 0.4rem; }
+[data-testid="stLogo"] { height: 2.1rem; max-width: 12rem; }
+[data-testid="stSidebarNavItems"] { padding-top: 0.2rem; }
+[data-testid="stNavSectionHeader"], [data-testid="stSidebarNavSeparator"] + div header {
+  color: var(--ll-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; }
+[data-testid="stSidebarNavLink"] { border-radius: var(--ll-radius-sm); margin: 1px 0.25rem;
+  padding: 0.35rem 0.7rem; transition: background 0.15s var(--ll-ease); }
+[data-testid="stSidebarNavLink"] span { color: var(--ll-text-soft); font-weight: 550; }
+[data-testid="stSidebarNavLink"]:hover { background: var(--ll-panel); }
+[data-testid="stSidebarNavLink"][aria-current="page"] { background: var(--ll-primary-tint); }
+[data-testid="stSidebarNavLink"][aria-current="page"] span { color: var(--ll-primary-ink);
+  font-weight: 700; }
+.st-key-user_card { background: var(--ll-panel); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius); padding: 0.9rem 0.95rem; gap: 0.4rem; box-sizing: border-box; }
+.st-key-user_card [data-testid="stMarkdownContainer"], .st-key-user_card .stMarkdown,
+.st-key-user_card [data-testid="stElementContainer"] { margin: 0 !important; }
+.st-key-user_card [data-testid="stCaptionContainer"] { margin-bottom: 0.35rem !important; }
+.st-key-user_card p { margin: 0 !important; overflow-wrap: anywhere; font-size: 0.92rem; }
+.st-key-user_card a { color: var(--ll-text) !important; text-decoration: none;
+  pointer-events: none; }
+.st-key-user_card .ll-avatar { display: inline-flex; align-items: center; justify-content: center;
+  width: 2.1rem; height: 2.1rem; border-radius: 999px; background: var(--ll-gradient);
+  color: var(--ll-on-brand); font-weight: 800; margin-bottom: 0.2rem; }
 
-/* Header strip */
-.ll-header {{ display: flex; align-items: center; min-height: 4.4rem; box-sizing: border-box;
-  background: {PRIMARY_INK}; border-bottom: 4px solid {INDIGO};
-  color: #FFFFFF; border-radius: 14px; padding: 0.7rem 1.3rem; margin-bottom: 1.1rem;
-  box-shadow: 0 4px 14px rgba(46, 116, 233, 0.18); }}
-.ll-brand {{ font-size: 2.4rem; font-weight: 800; line-height: 1.15; color: #FFFFFF;
-  letter-spacing: -0.015em; }}
+/* ---- Cards and containers ---- */
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [data-testid="stVerticalBlock"]) {
+  border-radius: var(--ll-radius); }
+[data-testid="stVerticalBlockBorderWrapper"][class] { border-color: var(--ll-border); }
+div[data-testid="stVerticalBlockBorderWrapper"] > div[style*="border"] {
+  border-color: var(--ll-border) !important; }
+[data-testid="stForm"] { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius-lg); padding: 1.4rem 1.4rem 1.1rem;
+  box-shadow: var(--ll-shadow-sm); }
+[data-testid="stExpander"] details { border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius);
+  background: var(--ll-bg); box-shadow: var(--ll-shadow-sm); }
+[data-testid="stExpander"] summary { font-weight: 650; color: var(--ll-text); }
+[data-testid="stExpander"] summary:hover { color: var(--ll-primary-ink); }
+[data-testid="stExpander"] summary:hover svg { fill: var(--ll-primary-ink); }
+[class*="st-key-surface"] { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius-lg); padding: 1.15rem 1.25rem; box-shadow: var(--ll-shadow-sm);
+  box-sizing: border-box; }
 
-/* Sidebar */
-[data-testid="stSidebar"] {{ background: {SOFT_PANEL}; border-right: 1px solid {BORDER}; }}
-[data-testid="stSidebarNavLink"] {{ border-radius: 8px; }}
+/* ---- Buttons and links ---- */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button,
+[data-testid="stPageLink"] a {
+  border-radius: var(--ll-radius-sm); font-weight: 650; min-height: 2.6rem;
+  transition: transform 0.15s var(--ll-ease), box-shadow 0.15s var(--ll-ease),
+    background 0.15s var(--ll-ease), border-color 0.15s var(--ll-ease); }
+.stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primaryFormSubmit"],
+  .stFormSubmitButton > button[kind="primary"] {
+  background: var(--ll-primary-ink); border: 1px solid var(--ll-primary-ink);
+  color: var(--ll-on-brand); padding: 0.55rem 1.3rem; box-shadow: var(--ll-shadow-sm); }
+.stButton > button[kind="primary"]:hover, .stDownloadButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primaryFormSubmit"]:hover {
+  background: var(--ll-primary-hover); border-color: var(--ll-primary-hover);
+  color: var(--ll-on-brand); box-shadow: var(--ll-shadow-brand); transform: translateY(-1px); }
+.stButton > button[kind="secondary"], .stDownloadButton > button[kind="secondary"],
+.stFormSubmitButton > button[kind="secondaryFormSubmit"] {
+  border: 1px solid var(--ll-border-strong); color: var(--ll-primary-ink);
+  background: var(--ll-bg); }
+.stButton > button[kind="secondary"]:hover, .stDownloadButton > button[kind="secondary"]:hover,
+.stFormSubmitButton > button[kind="secondaryFormSubmit"]:hover {
+  background: var(--ll-primary-tint); border-color: var(--ll-primary);
+  color: var(--ll-primary-ink);
+  transform: translateY(-1px); }
+.stButton > button:active, .stDownloadButton > button:active,
+.stFormSubmitButton > button:active, [data-testid="stPageLink"] a:active {
+  transform: translateY(0) scale(0.99); box-shadow: none; }
+.stButton > button:focus-visible, .stDownloadButton > button:focus-visible,
+.stFormSubmitButton > button:focus-visible, [data-testid="stPageLink"] a:focus-visible {
+  box-shadow: var(--ll-focus) !important; }
+[data-testid="stPageLink"] a { display: inline-flex; align-items: center; padding: 0.4rem 0.8rem; }
+[data-testid="stPageLink"] a:hover { background: var(--ll-primary-tint); }
+[data-testid="stPageLink"] a span, [data-testid="stPageLink"] a p { color: var(--ll-primary-ink);
+  font-weight: 650; }
 
-/* Cards: bordered containers */
-[data-testid="stVerticalBlockBorderWrapper"] {{ border-radius: 14px; border-color: {BORDER}; }}
-[data-testid="stExpander"] details {{ border: 1px solid {BORDER}; border-radius: 12px;
-  background: {BACKGROUND}; }}
-[data-testid="stExpander"] summary {{ font-weight: 600; color: {TEXT}; }}
-[data-testid="stExpander"] summary:hover {{ color: {PRIMARY_INK}; }}
+/* ---- Inputs ---- */
+[data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="select"] > div,
+[data-baseweb="textarea"] { background: var(--ll-bg) !important;
+  border-radius: var(--ll-radius-sm) !important; }
+[data-baseweb="input"], [data-baseweb="select"] > div, [data-baseweb="textarea"] {
+  border: 1px solid var(--ll-border-strong) !important; transition: border-color 0.15s,
+  box-shadow 0.15s; }
+[data-baseweb="input"]:hover, [data-baseweb="select"] > div:hover {
+  border-color: var(--ll-primary) !important; }
+[data-baseweb="input"]:focus-within, [data-baseweb="select"] > div:focus-within {
+  border-color: var(--ll-primary) !important; box-shadow: var(--ll-focus); }
+[data-baseweb="input"] input, [data-baseweb="base-input"] input {
+  background: transparent !important;
+  color: var(--ll-text); font-size: 1rem; }
+[data-testid="stNumberInput"] button { background: var(--ll-panel); border-color: transparent; }
+[data-testid="stNumberInput"] button:hover { background: var(--ll-primary-tint);
+  color: var(--ll-primary-ink); }
+[data-testid="stWidgetLabel"] p { font-weight: 600; color: var(--ll-text); font-size: 0.92rem; }
 
-/* Buttons */
-.stButton > button, .stDownloadButton > button, [data-testid="stPageLink"] a {{
-  border-radius: 10px; font-weight: 600; transition: all 0.15s ease; }}
-.stButton > button[kind="primary"], .stDownloadButton > button[kind="primary"] {{
-  background: {PRIMARY_INK}; border: 1px solid {PRIMARY_INK}; color: #FFFFFF;
-  padding: 0.55rem 1.2rem; }}
-.stButton > button[kind="primary"]:hover, .stDownloadButton > button[kind="primary"]:hover {{
-  background: {PRIMARY_INK_HOVER}; border-color: {PRIMARY_INK_HOVER}; color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(46, 116, 233, 0.28); }}
-.stButton > button[kind="secondary"], .stDownloadButton > button[kind="secondary"] {{
-  border: 1px solid {PRIMARY}; color: {PRIMARY_INK}; background: {BACKGROUND}; }}
-.stButton > button[kind="secondary"]:hover, .stDownloadButton > button[kind="secondary"]:hover
-  {{ background: {SOFT_PANEL}; border-color: {PRIMARY_INK}; color: {PRIMARY_INK}; }}
-[data-testid="stPageLink"] a:hover {{ background: {SOFT_PANEL}; }}
+/* ---- Segmented control: the Sign In role selector (a horizontal radio) ---- */
+.st-key-signin_card [data-testid="stRadio"] [role="radiogroup"] { display: flex; width: 100%;
+  gap: 4px; padding: 4px; background: var(--ll-panel); border: 1px solid var(--ll-border);
+  border-radius: 12px; box-sizing: border-box; flex-wrap: nowrap; }
+.st-key-signin_card [data-testid="stRadio"] label { flex: 1 1 0; margin: 0 !important;
+  justify-content: center; border-radius: 9px; padding: 0.5rem 0.6rem; cursor: pointer;
+  box-sizing: border-box; border: 1px solid transparent; min-width: 0;
+  transition: background 0.15s var(--ll-ease), box-shadow 0.15s var(--ll-ease); }
+.st-key-signin_card [data-testid="stRadio"] label > div:first-child { display: none; }
+.st-key-signin_card [data-testid="stRadio"] label p { font-weight: 650; color: var(--ll-text-soft);
+  font-size: 0.95rem; white-space: nowrap; }
+.st-key-signin_card [data-testid="stRadio"] label:hover { background: var(--ll-bg); }
+.st-key-signin_card [data-testid="stRadio"] label:has(input:checked) { background: var(--ll-bg);
+  box-shadow: var(--ll-shadow-sm); border-color: var(--ll-border); }
+.st-key-signin_card [data-testid="stRadio"] label:has(input:checked) p {
+  color: var(--ll-primary-ink); }
+.st-key-signin_card [data-testid="stRadio"] label:has(input:focus-visible) {
+  box-shadow: var(--ll-focus); }
 
-/* Form inputs */
-[data-testid="stNumberInput"] input, [data-testid="stTextInput"] input,
-[data-baseweb="select"] > div {{ border-radius: 10px !important; }}
-[data-testid="stNumberInput"] label p, [data-testid="stTextInput"] label p,
-[data-testid="stSelectbox"] label p, [data-testid="stMultiSelect"] label p {{
-  font-weight: 600; color: {TEXT}; }}
-[data-baseweb="input"], [data-baseweb="select"] > div {{ border-color: {BORDER} !important; }}
+/* ---- Tabs ---- */
+.stTabs [data-baseweb="tab-list"] { gap: 0.25rem; border-bottom: 1px solid var(--ll-border); }
+.stTabs [data-baseweb="tab"] { border-radius: 10px 10px 0 0; padding: 0.55rem 1rem;
+  font-weight: 650; color: var(--ll-muted); transition: color 0.15s, background 0.15s; }
+.stTabs [data-baseweb="tab"]:hover { color: var(--ll-primary-ink);
+  background: var(--ll-primary-tint); }
+.stTabs [aria-selected="true"] { color: var(--ll-primary-ink); }
+.stTabs [aria-selected="true"] p { color: var(--ll-primary-ink); }
+.stTabs [data-baseweb="tab-highlight"] { background-color: var(--ll-primary); height: 3px;
+  border-radius: 3px; }
+.stTabs [data-baseweb="tab-border"] { display: none; }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {{ gap: 0.35rem; border-bottom: 1px solid {BORDER}; }}
-.stTabs [data-baseweb="tab"] {{ border-radius: 10px 10px 0 0; padding: 0.5rem 1rem;
-  font-weight: 600; color: {MUTED}; }}
-.stTabs [aria-selected="true"] {{ color: {PRIMARY_INK}; background: {SOFT_PANEL}; }}
-.stTabs [data-baseweb="tab-highlight"] {{ background-color: {PRIMARY}; }}
+/* ---- Alerts and callouts: tint, coloured edge, navy text ---- */
+[data-testid="stAlertContainer"] { border-radius: var(--ll-radius); color: var(--ll-text);
+  border: 1px solid var(--ll-border); }
+[data-testid="stAlertContainer"] p, [data-testid="stAlertContainer"] li { color: var(--ll-text); }
+[data-testid="stAlertContentSuccess"] svg,
+  [data-testid="stAlertContentSuccess"] [data-testid="stIconMaterial"] {
+  color: var(--ll-approved-ink); }
+[data-testid="stAlertContentError"] [data-testid="stIconMaterial"] {
+  color: var(--ll-rejected-ink); }
+[data-testid="stAlertContentWarning"] [data-testid="stIconMaterial"] {
+  color: var(--ll-warning-ink); }
+[data-testid="stAlertContentInfo"] [data-testid="stIconMaterial"] { color: var(--ll-primary-ink); }
 
-/* Alerts: palette tints with a coloured left border; body text stays navy */
-[data-testid="stAlertContainer"] {{ border-radius: 12px; color: {TEXT}; }}
-{alert.format(kind="Success")} {{ background: {APPROVED_TINT};
-  border-left: 5px solid {APPROVED}; }}
-{alert.format(kind="Error")} {{ background: {REJECTED_TINT};
-  border-left: 5px solid {REJECTED}; }}
-{alert.format(kind="Warning")} {{ background: {WARNING_TINT};
-  border-left: 5px solid {WARNING}; }}
-{alert.format(kind="Info")} {{ background: {SOFT_PANEL}; border-left: 5px solid {PRIMARY}; }}
-[data-testid="stAlertContainer"] p, [data-testid="stAlertContainer"] li {{
-  color: {TEXT}; }}
+/* ---- Metric cards ---- */
+[data-testid="stMetric"] { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius); padding: 0.95rem 1.1rem; box-shadow: var(--ll-shadow-sm);
+  transition: box-shadow 0.2s var(--ll-ease), transform 0.2s var(--ll-ease); }
+[data-testid="stMetric"]:hover { box-shadow: var(--ll-shadow-md); }
+[data-testid="stMetricLabel"] p { color: var(--ll-muted); font-weight: 650; font-size: 0.82rem;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+[data-testid="stMetricValue"] { color: var(--ll-text); font-weight: 800; letter-spacing: -0.02em; }
 
-/* Metric cards */
-[data-testid="stMetric"] {{ background: {BACKGROUND}; border: 1px solid {BORDER};
-  border-radius: 14px; padding: 0.8rem 1rem; box-shadow: 0 1px 3px rgba(15, 27, 61, 0.06); }}
-[data-testid="stMetricLabel"] p {{ color: {MUTED}; font-weight: 600; }}
-[data-testid="stMetricValue"] {{ color: {TEXT}; font-weight: 700; }}
+/* ---- Tables ---- */
+[data-testid="stDataFrame"], [data-testid="stTable"] { border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius); overflow: hidden; box-shadow: var(--ll-shadow-sm);
+  background: var(--ll-bg); }
 
-/* Data tables */
-[data-testid="stDataFrame"] {{ border: 1px solid {BORDER}; border-radius: 12px;
-  overflow: hidden; }}
+/* ---- Charts: white cards on the canvas ---- */
+[data-testid="stPlotlyChart"] { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius); padding: 0.6rem 0.7rem 0.3rem; box-shadow: var(--ll-shadow-sm);
+  box-sizing: border-box; }
 
-/* Pills */
-.ll-pill {{ display: inline-block; border-radius: 999px; padding: 0.22rem 0.8rem;
-  font-size: 0.92rem; font-weight: 650; border: 1px solid; }}
+/* ---- File uploader ---- */
+[data-testid="stFileUploaderDropzone"] { background: var(--ll-primary-tint);
+  border: 2px dashed var(--ll-primary); border-radius: var(--ll-radius); padding: 1.3rem;
+  transition: background 0.15s, border-color 0.15s; }
+[data-testid="stFileUploaderDropzone"]:hover { background: var(--ll-panel);
+  border-color: var(--ll-primary-ink); }
+[data-testid="stFileUploaderDropzoneInstructions"] span { color: var(--ll-text-soft); }
+[data-testid="stFileUploaderDropzone"] button { border-radius: var(--ll-radius-sm);
+  border: 1px solid var(--ll-primary); color: var(--ll-primary-ink); background: var(--ll-bg);
+  font-weight: 650; }
+
+/* ---- Progress ---- */
+[data-testid="stProgress"] > div > div > div { background-color: var(--ll-border) !important;
+  border-radius: 999px; }
+[data-testid="stProgress"] > div > div > div > div { background: var(--ll-gradient) !important;
+  border-radius: 999px; }
+
+/* ---- Pills ---- */
+.ll-pill { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px;
+  padding: 0.3rem 0.85rem; font-size: 0.9rem; font-weight: 700; border: 1px solid; }
+
+/* ---- Home: hero ---- */
+.st-key-hero { background: var(--ll-gradient); border-radius: 22px; padding: 2.4rem 2.6rem 2.2rem;
+  box-shadow: var(--ll-shadow-brand); position: relative; overflow: hidden;
+  box-sizing: border-box; }
+.st-key-hero::after { content: ""; position: absolute; right: -120px; top: -140px; width: 420px;
+  height: 420px; border-radius: 50%; background: radial-gradient(circle, rgba(82, 113, 255, 0.55),
+  rgba(82, 113, 255, 0) 70%); pointer-events: none; }
+.st-key-hero > div { position: relative; z-index: 1; }
+.ll-hero-brand { display: flex; align-items: center; gap: 0.75rem; }
+.ll-logo-hero { border-radius: 12px; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.ll-hero-name { color: var(--ll-on-brand); font-size: 2.5rem; font-weight: 800;
+  letter-spacing: -0.03em; line-height: 1.1; }
+.ll-hero-eyebrow { color: var(--ll-on-brand) !important; font-weight: 700;
+  font-size: 1.1rem !important;
+  margin: 1.1rem 0 0.2rem 0; }
+.ll-hero-line { color: var(--ll-on-brand-soft) !important; font-size: 1.12rem !important;
+  max-width: 44rem; margin: 0 0 0.4rem 0; line-height: 1.6; }
+.st-key-hero [data-testid="stPageLink"] a { background: var(--ll-bg); color: var(--ll-primary-ink);
+  padding: 0.6rem 1.25rem; border-radius: 12px; box-shadow: var(--ll-shadow-md);
+  margin-top: 0.4rem; }
+.st-key-hero [data-testid="stPageLink"] a:hover { transform: translateY(-2px);
+  background: var(--ll-bg);
+  box-shadow: var(--ll-shadow-lg); }
+
+/* ---- Home: feature cards ---- */
+[data-testid="stHorizontalBlock"]:has([class*="st-key-feature_"]) { align-items: stretch; }
+[data-testid="stColumn"]:has(> div > [data-testid="stVerticalBlock"]
+  > [class*="st-key-feature_"]) > div,
+[data-testid="stColumn"]:has([class*="st-key-feature_"]) > div
+  > [data-testid="stVerticalBlock"] {
+  height: 100%; }
+[class*="st-key-feature_"] { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius-lg); padding: 1.3rem 1.3rem 1.1rem; height: 100%;
+  min-height: 15rem;
+  box-shadow: var(--ll-shadow-sm); box-sizing: border-box; justify-content: space-between;
+  transition: transform 0.2s var(--ll-ease), box-shadow 0.2s var(--ll-ease), border-color 0.2s; }
+[class*="st-key-feature_"]:hover { transform: translateY(-3px); box-shadow: var(--ll-shadow-lg);
+  border-color: var(--ll-primary); }
+[class*="st-key-feature_"] h4 { margin: 0.25rem 0 0 0; padding: 0; }
+[class*="st-key-feature_"] p { color: var(--ll-text-soft); font-size: 0.95rem; }
+[class*="st-key-fticon_"] { width: 2.9rem !important; height: 2.9rem; flex: 0 0 auto;
+  border-radius: 12px; display: flex;
+  align-items: center; justify-content: center; background: var(--ll-primary-tint); }
+[class*="st-key-fticon_"] [data-testid="stMarkdownContainer"] p { margin: 0; line-height: 1; }
+[class*="st-key-fticon_"] [data-testid="stElementContainer"] { width: auto !important; }
+[class*="st-key-fticon_"] [role="img"] { color: var(--ll-primary-ink); font-size: 1.55rem; }
+[class*="st-key-fticon_"] [data-testid="stIconMaterial"] { color: var(--ll-primary-ink);
+  font-size: 1.6rem; }
+[class*="st-key-feature_"] [data-testid="stPageLink"] { margin-top: auto; width: 100%; }
+[class*="st-key-feature_"] [data-testid="stPageLink"] > div { width: 100%; max-width: 100%; }
+[class*="st-key-feature_"] [data-testid="stPageLink-NavLink"] { max-width: 100%; }
+[class*="st-key-feature_"] [data-testid="stPageLink"] a { width: 100%; max-width: 100%;
+  justify-content: center;
+  background: var(--ll-primary-ink); box-sizing: border-box; }
+[class*="st-key-feature_"] [data-testid="stPageLink"] a span,
+[class*="st-key-feature_"] [data-testid="stPageLink"] a p { color: var(--ll-on-brand) !important; }
+[class*="st-key-feature_"] [data-testid="stPageLink"] a:hover {
+  background: var(--ll-primary-hover);
+  box-shadow: var(--ll-shadow-brand); }
+
+/* ---- Home: steps, trust strip ---- */
+.ll-steps { list-style: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1rem; padding: 0; margin: 0.4rem 0 0.6rem 0; counter-reset: none; position: relative; }
+.ll-step { position: relative; background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: var(--ll-radius); padding: 1.1rem 1rem 1rem; box-shadow: var(--ll-shadow-sm);
+  margin: 0 !important; }
+.ll-step:not(:last-child)::after { content: ""; position: absolute; top: 2.05rem; right: -1rem;
+  width: 1rem; height: 2px; background: var(--ll-border-strong); }
+.ll-step-num { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem;
+  height: 2.1rem; border-radius: 999px; background: var(--ll-gradient); color: var(--ll-on-brand);
+  font-weight: 800; font-size: 0.95rem; box-shadow: var(--ll-shadow-brand); }
+.ll-step-title { font-weight: 700 !important; color: var(--ll-text) !important;
+  margin: 0.7rem 0 0.25rem 0 !important;
+  font-size: 1rem !important; }
+.ll-step-text { color: var(--ll-text-soft) !important; font-size: 0.9rem !important;
+  margin: 0 !important;
+  line-height: 1.55 !important; }
+.ll-trust { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem;
+  background: var(--ll-bg); border: 1px solid var(--ll-border); border-radius: var(--ll-radius-lg);
+  padding: 1.1rem 1.3rem; box-shadow: var(--ll-shadow-sm); }
+.ll-trust-item { display: flex; gap: 0.7rem; align-items: flex-start; }
+.ll-trust-tick { flex: 0 0 auto; width: 1.55rem; height: 1.55rem; border-radius: 999px;
+  background: var(--ll-approved-tint); border: 1px solid var(--ll-approved); position: relative;
+  margin-top: 0.1rem; }
+.ll-trust-tick::after { content: ""; position: absolute; left: 0.5rem; top: 0.27rem;
+  width: 0.32rem;
+  height: 0.62rem; border: solid var(--ll-approved-ink); border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg); }
+.ll-trust-title { font-weight: 700 !important; margin: 0 !important;
+  font-size: 0.95rem !important; }
+.ll-trust-text { color: var(--ll-muted) !important; margin: 0 !important;
+  font-size: 0.85rem !important;
+  line-height: 1.45 !important; }
+
+/* ---- Footer ---- */
+.st-key-page_footer { border-top: 1px solid var(--ll-border); margin-top: 2rem;
+  padding-top: 1rem; }
+.st-key-page_footer p { font-size: 0.82rem !important; }
+
+/* ---- Sign in ---- */
+.ll-brand-panel { background: var(--ll-gradient); border-radius: 22px; padding: 2.4rem 2.2rem;
+  box-shadow: var(--ll-shadow-brand); min-height: 25rem; box-sizing: border-box;
+  position: relative;
+  overflow: hidden; }
+.ll-brand-panel::after { content: ""; position: absolute; left: -100px; bottom: -160px;
+  width: 380px;
+  height: 380px; border-radius: 50%; background: radial-gradient(circle, rgba(82, 113, 255, 0.5),
+  rgba(82, 113, 255, 0) 70%); }
+.ll-brand-panel .ll-hero-line { margin-top: 1.2rem; }
+.ll-brand-points { list-style: none; padding: 0; margin: 1.4rem 0 0 0; position: relative;
+  z-index: 1; }
+.ll-brand-points li { color: var(--ll-on-brand) !important; font-weight: 600;
+  padding: 0.45rem 0 0.45rem 1.6rem;
+  position: relative; font-size: 0.98rem; }
+.ll-brand-points li::before { content: ""; position: absolute; left: 0.15rem; top: 0.72rem;
+  width: 0.55rem;
+  height: 0.55rem; border-radius: 999px; background: var(--ll-on-brand-soft); }
+.st-key-signin_card { background: var(--ll-bg); border: 1px solid var(--ll-border);
+  border-radius: 22px; padding: 1.8rem 1.8rem 1.4rem; box-shadow: var(--ll-shadow-lg);
+  box-sizing: border-box; }
+.st-key-signin_card [data-testid="stForm"] { border: none; box-shadow: none;
+  padding: 0.4rem 0 0 0; }
+.st-key-signin_card h3 { margin-top: 0; }
+
+/* ---- Eligibility result ---- */
+.ll-meter { margin: 0.35rem 0 0.2rem 0; }
+.ll-meter-track { position: relative; height: 0.85rem; border-radius: 999px;
+  background: var(--ll-border);
+  overflow: hidden; }
+.ll-meter-band { position: absolute; top: 0; bottom: 0; background: var(--ll-warning-tint);
+  border-left: 1px solid var(--ll-warning); border-right: 1px solid var(--ll-warning); }
+.ll-meter-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
+  transition: width 0.6s var(--ll-ease); }
+.ll-meter-approved { background: var(--ll-approved); }
+.ll-meter-rejected { background: var(--ll-rejected); }
+.ll-meter-cut { position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--ll-text); }
+.ll-meter-scale { display: flex; justify-content: space-between; color: var(--ll-muted);
+  font-size: 0.78rem; margin-top: 0.35rem; font-weight: 600; }
+[class*="st-key-reason_"] [data-testid="stIconMaterial"],
+  [class*="st-key-card_rejected"] [data-testid="stIconMaterial"] {
+  color: var(--ll-rejected-ink); }
+[class*="st-key-card_approved"] [data-testid="stIconMaterial"] { color: var(--ll-approved-ink); }
+[class*="st-key-card_primary"] [data-testid="stIconMaterial"] { color: var(--ll-primary-ink); }
+.st-key-result_figures [data-testid="stMetric"] { padding: 0.8rem 1rem; }
+.st-key-result_figures [data-testid="stMetricValue"] { font-size: 1.6rem; }
+.st-key-form_section_credit, .st-key-form_section_loan, .st-key-form_section_assets {
+  background: var(--ll-bg); border: 1px solid var(--ll-border); border-radius: var(--ll-radius-lg);
+  padding: 1.15rem 1.25rem 0.6rem; box-shadow: var(--ll-shadow-sm); box-sizing: border-box; }
+[class*="st-key-form_section_"] h4 { display: flex; align-items: center; gap: 0.45rem; }
+[class*="st-key-form_section_"] [data-testid="stIconMaterial"] { color: var(--ll-primary-ink); }
+
+/* ---- Policy-check list ---- */
+.ll-check { display: flex; gap: 0.7rem; align-items: baseline; padding: 0.5rem 0;
+  border-bottom: 1px solid var(--ll-border); }
+.ll-check:last-child { border-bottom: none; }
+.ll-check-status { font-weight: 800; min-width: 5.6rem; font-size: 0.85rem; border-radius: 999px;
+  padding: 0.12rem 0.6rem; text-align: center; border: 1px solid; }
+.ll-check-pass .ll-check-status { color: var(--ll-approved-ink);
+  background: var(--ll-approved-tint);
+  border-color: var(--ll-approved); }
+.ll-check-fail .ll-check-status { color: var(--ll-rejected-ink);
+  background: var(--ll-rejected-tint);
+  border-color: var(--ll-rejected); }
+.ll-check-advisory .ll-check-status { color: var(--ll-warning-ink);
+  background: var(--ll-warning-tint);
+  border-color: var(--ll-warning); }
+.ll-check-label { font-weight: 650; color: var(--ll-text); }
+.ll-check-detail { color: var(--ll-muted); }
+
+/* ---- Responsive ---- */
+@media (max-width: 1100px) {
+  .ll-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ll-step::after { display: none; }
+  .ll-trust { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  [data-testid="stMainBlockContainer"] { padding: 3rem 1rem 2rem; }
+  h1 { font-size: 1.7rem !important; }
+  .st-key-hero { padding: 1.6rem 1.3rem; border-radius: 18px; }
+  .ll-hero-name { font-size: 1.9rem; }
+  .ll-steps, .ll-trust { grid-template-columns: minmax(0, 1fr); }
+  .ll-brand-panel { min-height: 0; padding: 1.6rem 1.4rem; }
+  .st-key-signin_card { padding: 1.3rem 1.1rem 1rem; }
+  [class*="st-key-feature_"] { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
 """
-    ]
+
+
+def _tone_css() -> str:
+    """Keyed cards, KPI cards, tinted panels and result banners for each tone."""
+    parts: list[str] = []
     for tone, (colour, tint, ink) in _TONES.items():
         parts.append(
             f".ll-pill-{tone} {{ background: {tint}; color: {ink}; border-color: {colour}; }}\n"
-        )
-        # Keyed metric cards: st.container(key="kpi_<tone>_...") -> coloured top edge + value.
-        parts.append(
+            # Keyed metric cards: st.container(key="kpi_<tone>_...") -> coloured top edge.
             f'[class*="st-key-kpi_{tone}"] [data-testid="stMetric"] {{ border-top: 4px solid '
-            f"{colour}; background: {tint if tone != 'primary' else BACKGROUND}; }}\n"
+            f"{colour}; }}\n"
             f'[class*="st-key-kpi_{tone}"] [data-testid="stMetricValue"] {{ color: {ink}; }}\n'
-        )
-        # Keyed content cards: st.container(key="card_<tone>_...") -> coloured left border.
-        parts.append(_tone_rules(f"card_{tone}", tone))
-        # Keyed panels: st.container(key="panel_<tone>_...") -> tinted panel.
-        parts.append(
+            # Keyed content cards: st.container(key="card_<tone>_...") -> coloured left edge.
+            f'[class*="st-key-card_{tone}"] {{ background: {BACKGROUND}; border: 1px solid '
+            f"{BORDER}; border-left: 4px solid {colour}; border-radius: 14px; "
+            "padding: 0.95rem 1.15rem; box-sizing: border-box; box-shadow: var(--ll-shadow-sm); "
+            "transition: box-shadow 0.2s var(--ll-ease); }\n"
+            f'[class*="st-key-card_{tone}"]:hover {{ box-shadow: var(--ll-shadow-md); }}\n'
+            # Keyed panels: st.container(key="panel_<tone>_...") -> tinted panel.
             f'[class*="st-key-panel_{tone}"] {{ background: {tint}; border: 1px solid '
-            f"{colour}; border-radius: 12px; padding: 0.75rem 1rem; box-sizing: border-box; }}\n"
+            f"{colour}; border-radius: 14px; padding: 0.8rem 1.05rem; box-sizing: border-box; }}\n"
         )
-    # Alerts inside a tinted panel blend into it.
+    for kind, tone in (("Success", "approved"), ("Error", "rejected"), ("Warning", "warning"),
+                       ("Info", "primary")):  # fmt: skip
+        colour, tint, _ = _TONES[tone]
+        parts.append(
+            f'[data-testid="stAlertContainer"]:has([data-testid="stAlertContent{kind}"]) {{ '
+            f"background: {tint}; border-left: 4px solid {colour}; }}\n"
+        )
     parts.append(
         '[class*="st-key-panel_"] [data-testid="stAlertContainer"] { background: transparent '
         "!important; border: none !important; padding: 0.2rem 0; }\n"
@@ -360,37 +880,33 @@ a {{ color: {PRIMARY_INK}; }}
     # Result banners: st.container(key="banner_approved" / "banner_rejected").
     for tone in ("approved", "rejected"):
         colour, tint, ink = _TONES[tone]
+        banner = f'[class*="st-key-banner_{tone}"]'
         parts.append(
-            f'[class*="st-key-banner_{tone}"] {{ background: {tint}; border: 2px solid '
-            f"{colour}; border-radius: 16px; padding: 1.1rem 1.4rem; box-sizing: border-box; "
-            f"box-shadow: 0 4px 16px rgba(15, 27, 61, 0.07); }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stAlertContainer"] {{ '
-            f"background: transparent !important; border: none !important; padding: 0; }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stAlertContainer"] h3 {{ '
-            f"color: {ink}; font-size: 2rem !important; font-weight: 750 !important; "
-            f"padding: 0 0 0.15rem 0; }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stAlertContainer"] svg '
-            f"{{ display: none; }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stMetric"] {{ background: '
-            f"rgba(255, 255, 255, 0.75); border-color: {colour}; }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stMetricValue"] {{ '
-            f"font-size: 1.7rem; }}\n"
-            f'[class*="st-key-banner_{tone}"] [data-testid="stMetricValue"] > div {{ '
-            f"white-space: normal; overflow: visible; text-overflow: clip; }}\n"
+            f"{banner} {{ background: linear-gradient(180deg, {tint} 0%, {BACKGROUND} 100%); "
+            f"border: 1px solid {colour}; border-top: 6px solid {colour}; border-radius: 20px; "
+            "padding: 1.4rem 1.6rem; box-sizing: border-box; box-shadow: var(--ll-shadow-md); }\n"
+            f'{banner} [data-testid="stAlertContainer"] {{ background: transparent !important; '
+            "border: none !important; padding: 0; }\n"
+            f'{banner} [data-testid="stAlertContainer"] h3 {{ color: {ink}; '
+            "font-size: 2.4rem !important; font-weight: 800 !important; padding: 0 0 0.1rem 0; "
+            "letter-spacing: -0.03em; }\n"
+            f'{banner} [data-testid="stAlertContainer"] p {{ font-size: 1.08rem; '
+            "font-weight: 600; }\n"
+            f'{banner} [data-testid="stAlertContainer"] [data-testid="stIconMaterial"] {{ '
+            f"color: {ink}; font-size: 2.3rem; }}\n"
+            f'{banner} [data-testid="stMetric"] {{ background: {BACKGROUND}; '
+            f"border-color: {colour}; }}\n"
+            f'{banner} [data-testid="stMetricValue"] {{ font-size: 1.85rem; color: {ink}; }}\n'
+            f'{banner} [data-testid="stMetricValue"] > div {{ white-space: normal; '
+            "overflow: visible; text-overflow: clip; }\n"
         )
-    # Policy-check list items.
-    parts.append(
-        f".ll-check {{ display: flex; gap: 0.55rem; align-items: baseline; padding: 0.35rem 0;"
-        f" border-bottom: 1px solid {BORDER}; }}\n"
-        f".ll-check:last-child {{ border-bottom: none; }}\n"
-        f".ll-check-status {{ font-weight: 800; min-width: 5.2rem; }}\n"
-        f".ll-check-pass .ll-check-status {{ color: {APPROVED_INK}; }}\n"
-        f".ll-check-fail .ll-check-status {{ color: {REJECTED_INK}; }}\n"
-        f".ll-check-advisory .ll-check-status {{ color: {WARNING_INK}; }}\n"
-        f".ll-check-label {{ font-weight: 600; color: {TEXT}; }}\n"
-        f".ll-check-detail {{ color: {MUTED}; }}\n"
-    )
-    return "\n".join(parts)
+    return "".join(parts)
+
+
+def app_css() -> str:
+    """The one CSS block injected on every page: font, tokens, components, tones."""
+    tokens = "\n".join(f"  {name}: {value};" for name, value in TOKENS.items())
+    return f"@import url('{FONT_URL}');\n:root {{\n{tokens}\n}}\n{_BASE_CSS}\n{_tone_css()}"
 
 
 def css_block() -> str:

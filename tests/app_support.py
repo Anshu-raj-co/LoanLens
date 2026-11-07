@@ -14,8 +14,11 @@ TOKEN_KEY = "auth_token"
 # Generated per test run, never stored.
 TEST_PASSWORD = "Pw-" + secrets.token_urlsafe(12)
 
-# The role each page needs ("auto" in open_page); public pages need none.
+# The role each page needs ("auto" in open_page). Only Sign In (and the entry point,
+# which then shows Sign In) is public.
 PAGE_ROLES = {
+    "pages/9_Home.py": auth.APPLICANT,
+    "pages/4_About.py": auth.APPLICANT,
     "pages/1_Check_My_Eligibility.py": auth.APPLICANT,
     "pages/2_Bulk_Check.py": auth.MANAGER,
     "pages/3_Analytics.py": auth.MANAGER,

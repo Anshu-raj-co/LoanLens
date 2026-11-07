@@ -242,5 +242,12 @@ def counts_bar(
         fig = px.bar(x=series.index, y=series.values, text=series.values, title=title,
                      color_discrete_sequence=[NEUTRAL_COLOUR], template=TEMPLATE)  # fmt: skip
         fig.update_layout(xaxis_title=x_label, yaxis_title="Applicants", xaxis_type="category")
-    fig.update_traces(textposition="outside")
+    # Labels outside the bars are never clipped: room is kept beyond the longest bar.
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    top = float(series.max()) if len(series) else 0.0
+    if top > 0:
+        if horizontal:
+            fig.update_xaxes(range=[0, top * 1.15])
+        else:
+            fig.update_yaxes(range=[0, top * 1.12])
     return theme.style_figure(fig)

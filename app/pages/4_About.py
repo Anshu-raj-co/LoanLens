@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import streamlit as st
-from ui_common import footer, get_policy, setup_page
+from ui_common import footer, get_policy, require_user, setup_page
 
 from loanlens import model as model_mod
 from loanlens import registry
@@ -20,7 +20,11 @@ from loanlens.presentation import (
 
 MODEL_CARD = PROJECT_ROOT / "reports" / "model_card.md"
 
-setup_page("About LoanLens")
+setup_page(
+    "About LoanLens",
+    "What the model does and does not do, where the data comes from and every policy setting.",
+)
+require_user()  # About is for signed-in users
 policy = get_policy()
 
 st.warning(

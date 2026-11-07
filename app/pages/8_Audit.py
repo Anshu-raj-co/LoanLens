@@ -16,14 +16,14 @@ from loanlens.presentation import AUDIT_NOTE, audit_frame, profile_label
 PAGE_SIZE = 100
 ANY = "Any"
 
-setup_page("Audit")
+setup_page("Audit", "The append-only record of every decision, with filters and export.")
 principal = require_user(auth.MANAGER)
 st.caption(AUDIT_NOTE)
 
 try:
     options = services.audit_filter_options(principal)
 except auth.AuthorisationError as exc:
-    st.error(f"{exc} Open Sign in in the sidebar.")
+    st.error(f"{exc} Open Sign In from the menu.")
     footer()
     st.stop()
 except DatabaseError as exc:
@@ -92,12 +92,13 @@ cards = [
     ("Rejected", counts["rejected"]),
     ("Borderline", counts["borderline"]),
 ]
-for col, (label, value) in zip(st.columns(len(cards)), cards, strict=True):
-    with col:
+tones = {"Approved": "approved", "Rejected": "rejected", "Borderline": "warning"}
+for i, (col, (label, value)) in enumerate(zip(st.columns(len(cards)), cards, strict=True)):
+    with col, st.container(key=f"kpi_{tones.get(label, 'primary')}_{i}"):
         st.metric(label, f"{value:,}")
 
 if not page.items:
-    st.info("No decisions match these filters.")
+    st.info("No decisions match these filters.", icon=":material/search_off:")
     footer()
     st.stop()
 
@@ -105,7 +106,9 @@ pages = max(1, -(-page.total // PAGE_SIZE))
 st.caption(f"Page {page.page} of {pages:,}, newest first ({page.total:,} matching records).")
 st.dataframe(audit_frame(page.items), hide_index=True, use_container_width=True)
 
-if st.button("Prepare CSV of all matching records", key="audit_prepare"):
+if st.button(
+    "Prepare CSV of all matching records", key="audit_prepare", icon=":material/table_view:"
+):
     rows = services.audit_export(principal, filters)
     st.session_state["audit_csv"] = audit_frame(rows).to_csv(index=False).encode("utf-8")
 if st.session_state.get("audit_csv"):
@@ -114,6 +117,8 @@ if st.session_state.get("audit_csv"):
         data=st.session_state["audit_csv"],
         file_name="loanlens_audit.csv",
         mime="text/csv",
+        type="primary",
+        icon=":material/download:",
     )
 st.caption(f"The CSV holds up to {services.EXPORT_LIMIT:,} records.")
 footer()

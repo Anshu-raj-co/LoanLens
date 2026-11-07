@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from loanlens.config import PROJECT_ROOT
@@ -53,10 +52,9 @@ def test_benchmark_report_covers_required_points() -> None:
 
 
 def test_about_page_shows_benchmark(app_path, artifact) -> None:
-    from streamlit.testing.v1 import AppTest
+    from app_support import open_page
 
-    at = AppTest.from_file(str(Path(app_path) / "pages" / "4_About.py"), default_timeout=120)
-    at.run()
+    at = open_page("pages/4_About.py").run()
     assert not at.exception
     assert any(s.value == "Benchmark" for s in at.subheader)
     assert any(BENCHMARK_SUMMARY[:60] in m.value for m in at.markdown)

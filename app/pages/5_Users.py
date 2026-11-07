@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-from ui_common import footer, require_user, setup_page
+from ui_common import footer, require_user, security_notice, setup_page
 
 from loanlens import auth
 from loanlens.auth import passwords
 from loanlens.db.engine import DatabaseError
 
-setup_page("Users")
+setup_page(
+    "Users", "Manage accounts: create managers, deactivate accounts and set temporary passwords."
+)
 principal = require_user(auth.MANAGER)
+security_notice(principal)
 
 message = st.session_state.pop("users_message", None)
 if message:
@@ -67,7 +70,7 @@ with st.form("create_manager_form", clear_on_submit=True):
     email = st.text_input("Email", key="new_manager_email")
     temporary = st.text_input("Temporary password", type="password", key="new_manager_password")
     repeat = st.text_input("Type it again", type="password", key="new_manager_repeat")
-    create = st.form_submit_button("Create manager", type="primary")
+    create = st.form_submit_button("Create manager", type="primary", icon=":material/person_add:")
 st.caption(
     f"The new manager must change this password at first sign-in. {passwords.MIN_LENGTH} to "
     f"{passwords.MAX_LENGTH} characters, not a common password, not the email address."
@@ -84,7 +87,7 @@ if create:
             _done("The manager account was created.")
 
 if not others:
-    st.info("There are no other accounts yet.")
+    st.info("There are no other accounts yet.", icon=":material/group:")
     footer()
     st.stop()
 

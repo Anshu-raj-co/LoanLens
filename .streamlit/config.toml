@@ -1,6 +1,8 @@
 [client]
 # Never show raw stack traces to users (CLAUDE.md section 10).
 showErrorDetails = false
+# Hide the Deploy button and developer menu items from visitors.
+toolbarMode = "minimal"
 
 [server]
 headless = true
@@ -12,7 +14,8 @@ maxUploadSize = 200
 gatherUsageStats = false
 
 # Light fintech theme. Colours mirror src/loanlens/theme.py (STREAMLIT_THEME); a test keeps
-# the two in sync. base = "light" forces the same look on every machine.
+# the two in sync. base = "light" forces the same look on every machine. Streamlit 1.40 only
+# offers "sans serif" here; the Inter font, radii and shadows come from the theme CSS.
 [theme]
 base = "light"
 primaryColor = "#2E74E9"

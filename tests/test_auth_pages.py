@@ -40,7 +40,7 @@ def test_sign_in_page_has_two_tabs(app_path) -> None:
     at = open_page(SIGN_IN).run()
     assert not at.exception
     assert [t.label for t in at.tabs] == ["Sign in", "Create account"]
-    assert any("Not signed in" in c.value for c in at.sidebar.caption)
+    assert not at.sidebar.children  # signed out: no sidebar, no menu
     assert "Bank manager accounts are created by an administrator" in " ".join(
         m.value for m in at.markdown
     )
@@ -143,7 +143,9 @@ def test_sign_out_from_sign_in_page(app_path) -> None:
 # ---- Access rules ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("page", [CHECK, *MANAGER_PAGES, ACCOUNT])
+@pytest.mark.parametrize(
+    "page", [CHECK, *MANAGER_PAGES, ACCOUNT, "pages/4_About.py", "pages/9_Home.py"]
+)
 def test_signed_out_users_are_asked_to_sign_in(app_path, page) -> None:
     at = open_page(page, role=None).run()
     assert not at.exception
@@ -151,7 +153,7 @@ def test_signed_out_users_are_asked_to_sign_in(app_path, page) -> None:
     assert not at.number_input and not at.dataframe
 
 
-@pytest.mark.parametrize("page", ["Home.py", "pages/4_About.py", SIGN_IN])
+@pytest.mark.parametrize("page", ["Home.py", SIGN_IN])
 def test_public_pages_need_no_session(app_path, artifact, page) -> None:
     at = open_page(page, role=None).run()
     assert not at.exception
@@ -225,11 +227,13 @@ def test_production_without_secret_refuses_to_start(app_path, monkeypatch) -> No
     assert not at.get("page_link")
 
 
-def test_development_without_secret_shows_warning(app_path, monkeypatch) -> None:
+def test_development_without_secret_hides_notice_from_visitors(app_path, monkeypatch) -> None:
+    """The temporary-key notice is for managers only (Users and Account, collapsed)."""
     monkeypatch.delenv(settings.ENV_SECRET)
     at = open_page("Home.py", role=None).run()
     assert not at.exception
-    assert any("temporary signing key" in w.value for w in at.sidebar.warning)
+    assert not any("temporary signing key" in w.value for w in at.warning)
+    assert settings.signing_key().ephemeral  # still in use, and still logged
 
 
 def test_bootstrap_runs_from_the_app(app_path, monkeypatch) -> None:

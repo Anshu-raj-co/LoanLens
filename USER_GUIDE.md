@@ -8,36 +8,40 @@ How to open it depends on how it was set up (README.md has the steps):
 - **With Docker:** `docker compose up --build -d`, then open http://127.0.0.1:8501 (the API docs are at http://127.0.0.1:8000/docs).
 - **A hosted demonstration** (for example on Streamlit Community Cloud): open the link you were given. It is for **synthetic or test data only**; never enter real applicant details there. It may take a while to wake up after a quiet period.
 
-Use the sidebar to move between pages.
+The first screen is **Sign In**. After you sign in, the menu on the left lists the pages you can use and you start on **Home**. On a phone the menu folds away; open it with the arrow at the top left.
 
 ---
 
 ## Part 0: Accounts and signing in
 
-Home, Sign in and About are open to everyone. Every other page needs you to be signed in.
+Only the **Sign In** screen is open to everyone. Everything else, About included, needs you to be signed in, and the menu shows only the pages your account can use.
 
-| You are | You can use |
+| You are | Your menu |
 |---|---|
-| An **applicant** | Check My Eligibility, My History and Account |
-| A **bank manager** | Check My Eligibility, My History, Bulk Check, Analytics, Audit, Users and Account |
+| An **applicant** | Home, Check My Eligibility, My History, Account and About |
+| A **bank manager** | Home, Check My Eligibility, My History, Bulk Check, Analytics, Audit, Users, Account and About |
+
+If you open the web address of a page that is not in your menu, you are taken to your Home page.
 
 ### Create an account (applicants)
 
-1. Open **Sign in** and choose the **Create account** tab.
+1. On the **Sign In** screen keep **Applicant** selected and choose the **Create account** tab.
 2. Enter your email address and a password twice, then press **Create account**. You are signed in straight away.
 
 Passwords need 10 to 128 characters, must not be a common password and must not be your email address. A passphrase of a few unrelated words works well. Bank manager accounts cannot be created here; an administrator or another manager creates them.
 
 ### Sign in and sign out
 
-- On the **Sign in** tab enter your email and password. If anything is wrong, the message is always "Incorrect email or password", so it never reveals whether an email has an account.
+- At the top of the Sign In card, choose who you are: **Applicant** (the default) or **Bank manager (admin)**. Then enter your email and password on the **Sign in** tab. If anything is wrong, the message is always "Incorrect email or password", whichever option is chosen, so it never reveals whether an email has an account.
+- The choice only picks the right screen; your account's role decides what you can do. If your password is correct but you chose the other option, you are not signed in and a message asks you to choose the other one (for example "This account is not a bank manager account. Choose Applicant to sign in.").
+- After signing in you land on **Home**: a welcome and a card for each page you can use.
 - After **5 wrong passwords in a row** the account is locked for **15 minutes**. While it is locked, even the right password is refused.
-- The sidebar shows the email and role you are signed in with, and a **Sign out** button.
+- The menu shows the email and role you are signed in with, and a **Sign out** button. Signing out takes you back to the Sign In screen.
 - A session lasts 60 minutes. **Refreshing or closing the browser tab also signs you out**; just sign in again.
 
 ### Forgotten password
 
-There is no email reset. Ask a bank manager to set a **temporary password** for you (Users page). When you sign in with it you must choose a new password on the **Account** page before you can use the other pages.
+There is no email reset. Ask a bank manager to set a **temporary password** for you (Users page). When you sign in with it, the menu shows only **Account** until you have chosen a new password there.
 
 ### Account page
 
@@ -121,7 +125,8 @@ Open **My History** to see every check you have made while signed in, newest fir
 | "The prediction model has not been trained yet" | The administrator needs to run `python -m loanlens.model`. |
 | "Sorry, something went wrong..." | Check the inputs and try again; contact the administrator if it repeats. |
 | "Incorrect email or password" | Check both and try again. After 5 wrong tries the account is locked for 15 minutes; a bank manager can unlock it by setting a temporary password. |
-| "Please sign in to use this page" | Open **Sign in** in the sidebar. |
+| "Please sign in to use this page" | Go back to the **Sign In** screen (the app's main address) and sign in. |
+| "This account is not a bank manager account. Choose Applicant to sign in." (or the reverse) | Your password was right but the other option was selected on Sign In. Choose the other option and sign in again. |
 | "Your check could not be saved to your history, so no result is shown." | The database is unavailable. Try again later. |
 | "Your session has ended. Please sign in again." | The 60 minutes are up, or the account was changed by a manager. Sign in again. |
 | "This is available to bank managers only." | The page is for bank managers; applicants cannot open it. |
@@ -133,10 +138,12 @@ Open **My History** to see every check you have made while signed in, newest fir
 
 ### Getting in
 
-1. Sign in with your **bank manager account** on the **Sign in** page.
-2. Open **Bulk Check** in the sidebar.
+1. On the **Sign In** screen choose **Bank manager (admin)** and sign in with your bank manager account. Manager accounts cannot be created on this screen.
+2. Open **Bulk Check** from the menu or from its card on Home.
 
 Manager accounts are created by an administrator (`python -m loanlens.auth create-manager --email <email>`, which asks for the password at a hidden prompt) or by another manager on the **Users** page. A new manager must change the temporary password at first sign-in.
+
+If LoanLens is running without its signing key setting (only possible in a development set-up), bank managers see a collapsed **Security notice: temporary signing key** on the Users and Account pages: everyone is signed out when the app restarts, and the administrator should set `LOANLENS_JWT_SECRET` before the app is shared.
 
 ### Preparing the file
 

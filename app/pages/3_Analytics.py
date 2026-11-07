@@ -9,7 +9,10 @@ from ui_common import footer, get_model, get_policy, require_user, setup_page
 from loanlens import analytics, auth, charts, services
 from loanlens.db.engine import DatabaseError
 
-setup_page("Analytics")
+setup_page(
+    "Analytics",
+    "Approval patterns in the training data, what drives the model and the latest batch.",
+)
 principal = require_user(auth.MANAGER)
 policy = get_policy()
 artifact = get_model()
@@ -19,7 +22,7 @@ try:
     with st.spinner("Loading the training data..."):
         data = services.analytics_data(principal)
 except auth.AuthorisationError as exc:
-    st.error(f"{exc} Open Sign in in the sidebar.")
+    st.error(f"{exc} Open Sign In from the menu.")
     footer()
     st.stop()
 except analytics.AggregatesError as exc:
@@ -114,7 +117,10 @@ with tab_batch:
         latest, history = None, pd.DataFrame()
         st.error("The batch history could not be read.")
     if latest is None:
-        st.info("No batch has been checked yet. Run one on the **Bulk Check** page.")
+        st.info(
+            "No batch has been checked yet. Run one on the **Bulk Check** page.",
+            icon=":material/inbox:",
+        )
     else:
         st.markdown(f"**Batch #{latest['id']}**, checked {latest['created_at']} (UTC)")
         rate = latest["approval_rate"]

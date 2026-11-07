@@ -28,7 +28,10 @@ STATUS_TEXT = {
     jobs.FAILED: "Failed", jobs.CANCELLED: "Cancelled", jobs.EXPIRED: "Expired",
 }  # fmt: skip
 
-setup_page("Bulk Check")
+setup_page(
+    "Bulk Check",
+    "Score a whole file of applicants as a background job, then review and download the results.",
+)
 principal = require_user(auth.MANAGER)
 policy = get_policy()
 
@@ -50,7 +53,7 @@ def _stop_with(message: str) -> None:
     st.stop()
 
 
-st.warning(f"**{PROTOTYPE_NOTICE}.** Results support pre-screening only.")
+st.warning(f"**{PROTOTYPE_NOTICE}.** Results support pre-screening only.", icon=":material/info:")
 if hosted.is_hosted():
     st.warning(
         "This is a hosted demonstration. Upload only synthetic or test data, never real "
@@ -95,6 +98,7 @@ st.markdown(
 )
 st.download_button(
     "Download CSV template",
+    icon=":material/download:",
     data=batch.template_csv(),
     file_name="loanlens_template.csv",
     mime="text/csv",
@@ -110,7 +114,7 @@ with st.form("bulk_submit", clear_on_submit=True):
     include_positive = st.checkbox(
         "Also list positive factors for approved applicants (slower)", value=False
     )
-    submitted = st.form_submit_button("Submit job", type="primary")
+    submitted = st.form_submit_button("Submit job", type="primary", icon=":material/rocket_launch:")
 
 if submitted:
     if uploaded is None:
@@ -124,7 +128,7 @@ if submitted:
             st.session_state[ACTIVE_KEY] = job.id
             st.session_state[SELECTED_KEY] = job.id
         except auth.AuthorisationError as exc:
-            _stop_with(f"{exc} Open Sign in in the sidebar.")
+            _stop_with(f"{exc} Open Sign In from the menu.")
         except batch.BatchError as exc:
             st.error(str(exc))
         except DatabaseError as exc:
@@ -188,7 +192,7 @@ try:
 except DatabaseError as exc:
     _stop_with(str(exc))
 if not job_list:
-    st.info("No batch job yet. Upload a file above.")
+    st.info("No batch job yet. Upload a file above to start one.", icon=":material/inbox:")
     footer()
     st.stop()
 
@@ -296,7 +300,7 @@ if not ready:
         f"The files are large ({sum(sizes.values()):,.0f} MB in total), so they are read only "
         "when you ask."
     )
-    if st.button("Prepare downloads"):
+    if st.button("Prepare downloads", icon=":material/download:"):
         st.session_state[PREPARED_KEY] = job.id
         st.rerun()
 else:
@@ -310,6 +314,7 @@ else:
         col.download_button(
             label, data=files[kind].read_bytes(), file_name=f"{stem}_{job.id[:8]}.{ext}",
             mime=mime, type="primary" if kind == "result_csv" else "secondary",
+            icon=":material/download:", use_container_width=True,
             key=f"dl_{kind}_{job.id}",
         )  # fmt: skip
 

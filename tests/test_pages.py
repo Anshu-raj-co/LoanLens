@@ -12,7 +12,7 @@ from loanlens.config import load_policy
 from loanlens.presentation import policy_table, thresholds_note
 
 PAGES = [
-    "Home.py",
+    "pages/9_Home.py",
     "pages/1_Check_My_Eligibility.py",
     "pages/2_Bulk_Check.py",
     "pages/3_Analytics.py",
@@ -30,7 +30,10 @@ def test_every_page_renders_with_footer(app_path, artifact, page) -> None:
     at = _run(app_path, page, manager=page.endswith("Bulk_Check.py"))
     assert not at.exception, at.exception
     assert any("Prototype - not a lending decision" in c.value for c in at.caption)
-    assert at.title[0].value  # consistent page title
+    if page.endswith("9_Home.py"):
+        assert any("ll-hero-body" in m.value for m in at.markdown)  # hero instead
+    else:
+        assert at.title[0].value  # consistent page title
 
 
 @pytest.mark.parametrize(

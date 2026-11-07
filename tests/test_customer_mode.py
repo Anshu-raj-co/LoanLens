@@ -88,7 +88,7 @@ def _page(app_path: str, name: str):
 
 
 def test_home_renders(app_path) -> None:
-    at = _page(app_path, "Home.py").run()
+    at = _page(app_path, "pages/9_Home.py").run()
     assert not at.exception and not at.error
     assert not any("approval decision" in w.value for w in at.warning)  # box removed
     assert any("illustrative placeholders" in i.value for i in at.info)
@@ -124,3 +124,24 @@ def test_customer_page_shows_validation_errors(app_path, artifact) -> None:
     assert not at.exception
     assert any("correct the following" in e.value for e in at.error)
     assert any("Loan amount must be greater than 0." in m.value for m in at.markdown)
+
+
+@pytest.mark.parametrize(("title", "applicant", "expected"), EXAMPLES, ids=lambda x: str(x)[:20])
+def test_key_figures_come_from_the_policy_checks(artifact, title, applicant, expected) -> None:
+    """The result cards show only numbers the decision returned (rule actuals and limits)."""
+    from loanlens.formatting import pct, times
+    from loanlens.presentation import key_figures
+
+    result = decide(applicant, POLICY, artifact=artifact)
+    rules = {r.rule: r for r in result.rule_results}
+    figures = {f.label: f for f in key_figures(result)}
+    assert list(figures) == [
+        "CIBIL score", "Loan to annual income", "Loan to total assets", "EMI to monthly income",
+    ]  # fmt: skip
+    assert figures["CIBIL score"].value == f"{rules['min_cibil'].actual:.0f}"
+    assert figures["CIBIL score"].detail == "Minimum 550"
+    assert figures["Loan to annual income"].value == times(rules["max_loan_to_income"].actual)
+    assert figures["Loan to total assets"].detail == "Limit 1.5x"
+    emi = figures["EMI to monthly income"]
+    assert emi.value == pct(rules["max_emi_to_income"].actual)
+    assert emi.detail == "Estimated; limit 50% (advisory)"  # advisory under personal

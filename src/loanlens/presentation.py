@@ -369,6 +369,42 @@ def present(result: DecisionResult, policy: Policy) -> DecisionView:
     )
 
 
+@dataclass(frozen=True)
+class KeyFigure:
+    """One number from a decision, for a metric card (display only)."""
+
+    label: str
+    value: str
+    detail: str
+
+
+_FIGURES = {  # rule -> (card label, formatter, limit wording)
+    "min_cibil": ("CIBIL score", lambda v: f"{v:.0f}", "Minimum {}"),
+    "max_loan_to_income": ("Loan to annual income", times, "Limit {}"),
+    "max_loan_to_assets": ("Loan to total assets", times, "Limit {}"),
+    "max_emi_to_income": ("EMI to monthly income", pct, "Estimated; limit {}"),
+}
+
+
+def key_figures(result: DecisionResult) -> list[KeyFigure]:
+    """The applicant's own figures that the policy checks computed, with each limit.
+
+    Only numbers the decision already returned (``rule_results``) are shown; nothing is
+    recalculated here. Advisory limits are marked as such.
+    """
+    by_rule = {r.rule: r for r in result.rule_results}
+    figures = []
+    for rule, (label, fmt, limit) in _FIGURES.items():
+        r = by_rule.get(rule)
+        if r is None:
+            continue
+        detail = limit.format(fmt(r.threshold))
+        if not r.enforce:
+            detail += " (advisory)"
+        figures.append(KeyFigure(label, fmt(r.actual), detail))
+    return figures
+
+
 def amount_hint(value: float) -> str:
     """Indian-grouped echo of an amount typed into a number box, e.g. 'Rs 12,50,000'."""
     return inr(value)

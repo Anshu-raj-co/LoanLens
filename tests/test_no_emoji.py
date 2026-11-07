@@ -2,6 +2,9 @@
 
 Status is shown by colour plus plain words ("Approved", "Rejected", "Borderline - manual
 review recommended", "Passed" / "Failed"), never by icon characters (decisions_log D-068).
+Material icons (``:material/name:`` shortcodes, rendered by Streamlit as vector icons from
+its bundled Material Symbols font) are allowed; every Unicode emoji and every other
+shortcode (for example ``:white_check_mark:``) still fails.
 """
 
 from __future__ import annotations
@@ -31,9 +34,10 @@ EMOJI = re.compile(
     "\u200d"  # zero-width joiner
     "]"
 )
-# Streamlit shortcodes such as :white_check_mark: or :material/check: (Sphinx roles like
-# :func:`x` in docstrings are followed by a backtick and are not matched).
+# Streamlit shortcodes such as :white_check_mark: (Sphinx roles like :func:`x` in docstrings
+# are followed by a backtick and are not matched). :material/name: icons are allowed.
 SHORTCODE = re.compile(r"(?<![\w`:]):[a-z0-9_+\-]+(?:/[a-z0-9_]+)?:(?![\w`:/])")
+MATERIAL = re.compile(r"^:material/[a-z0-9_]+:$")
 
 UI_SOURCES = sorted((PROJECT_ROOT / "app").rglob("*.py")) + sorted(
     (PROJECT_ROOT / "src" / "loanlens").glob("*.py")
@@ -44,6 +48,7 @@ RENDERED_TEXT = [
 ]
 PAGES = [
     "Home.py",
+    "pages/9_Home.py",
     "pages/0_Sign_In.py",
     "pages/1_Check_My_Eligibility.py",
     "pages/2_Bulk_Check.py",
@@ -51,24 +56,29 @@ PAGES = [
     "pages/4_About.py",
     "pages/5_Users.py",
     "pages/6_Account.py",
+    "pages/7_My_History.py",
+    "pages/8_Audit.py",
 ]
 FIXTURE = Path(__file__).parent / "fixtures" / "batch_1000.csv"
 
 
 def find_emoji(text: str) -> list[str]:
     """Every emoji character or shortcode in ``text``."""
-    return EMOJI.findall(text) + SHORTCODE.findall(text)
+    shortcodes = [s for s in SHORTCODE.findall(text) if not MATERIAL.match(s)]
+    return EMOJI.findall(text) + shortcodes
 
 
 def test_detector_catches_known_emoji() -> None:
     samples = (
         "\u2705", "\u274c", "\u26a0\ufe0f", "\u2696", "\U0001f50e", "\u2139\ufe0f", "\u27a1",
-        "\u25ce", "\u2713", "\u2717", ":white_check_mark:", ":material/check:",
+        "\u25ce", "\u2713", "\u2717", ":white_check_mark:", ":smile:", ":material:",
+        ":materials/check:", ":material_check:", "\U0001f4b0",
     )  # fmt: skip
     for sample in samples:
         assert find_emoji(f"x {sample} y"), sample
     for clean in ("Approved", "Borderline - manual review recommended", ":func:`decide`",
-                  "12:30:45", "https://example.com", "Rs 12,50,000 (12.5 lakh)"):  # fmt: skip
+                  "12:30:45", "https://example.com", "Rs 12,50,000 (12.5 lakh)",
+                  ":material/check_circle:", "Open :material/fact_check: Check"):  # fmt: skip
         assert not find_emoji(clean), clean
 
 

@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import streamlit as st
-from ui_common import end_session, escape_md, footer, require_user, setup_page, start_session
+from ui_common import (
+    end_session,
+    escape_md,
+    footer,
+    require_user,
+    security_notice,
+    setup_page,
+    start_session,
+)
 
 from loanlens import auth
 from loanlens.auth import passwords
 from loanlens.db.engine import DatabaseError
 
-setup_page("Account")
+setup_page("Account", "Your sign-in details, password and account.")
 principal = require_user(allow_password_change=True)
+security_notice(principal)
 
 st.markdown(f"Signed in as **{escape_md(principal.email)}**. Role: {principal.role_label}.")
 if principal.must_change_password:
@@ -34,7 +43,7 @@ with st.form("change_password_form", clear_on_submit=True):
         "Type the new password again", type="password", key="repeat_password",
         autocomplete="new-password",
     )  # fmt: skip
-    change = st.form_submit_button("Change password", type="primary")
+    change = st.form_submit_button("Change password", type="primary", icon=":material/key:")
 st.caption(
     f"{passwords.MIN_LENGTH} to {passwords.MAX_LENGTH} characters, not a common password and "
     "not your email address."
@@ -68,7 +77,7 @@ with st.form("delete_account_form", clear_on_submit=True):
     password = st.text_input(
         "Password", type="password", key="delete_password", autocomplete="current-password"
     )
-    delete = st.form_submit_button("Delete my account")
+    delete = st.form_submit_button("Delete my account", icon=":material/delete:")
 if delete:
     if not confirm:
         st.error("Tick the box to confirm that you want to delete your account.")
